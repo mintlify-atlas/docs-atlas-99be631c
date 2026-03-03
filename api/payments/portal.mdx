@@ -1,0 +1,195 @@
+---
+title: Customer portal
+description: API endpoint for creating customer portal sessions to manage subscriptions and billing
+---
+
+The customer portal endpoint allows authenticated users to access a billing portal where they can manage their subscription, update payment methods, view invoices, and cancel their subscription.
+
+## Endpoint
+
+```
+POST /api/payments/portal
+```
+
+## Authentication
+
+This endpoint requires authentication. The user must have an active session with a valid JWT token.
+
+## Request Body
+
+<ParamField path="returnUrl" type="string">
+  Optional URL to redirect the user after they're done in the portal. Defaults to the dashboard.
+</ParamField>
+
+### Example Request
+
+```typescript
+const response = await fetch('/api/payments/portal', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    returnUrl: 'https://yourdomain.com/dashboard'
+  })
+})
+
+const data = await response.json()
+// Redirect user to portal
+window.location.href = data.url
+```
+
+## Response
+
+<ResponseField name="url" type="string" required>
+  The URL to redirect the user to the billing portal
+</ResponseField>
+
+### Success Response (200)
+
+```json
+{
+  "url": "https://billing.stripe.com/p/session_abc123..."
+}
+```
+
+### Error Responses
+
+<Accordion title="401 Unauthorized">
+  Returned when the user is not authenticated.
+
+  ```json
+  {
+    "error": "Unauthorized"
+  }
+  ```
+</Accordion>
+
+<Accordion title="404 Not Found">
+  Returned when no customer record exists for the authenticated user.
+
+  ```json
+  {
+    "error": "No customer found"
+  }
+  ```
+</Accordion>
+
+<Accordion title="400 Bad Request">
+  Returned when the customer's payment provider doesn't match the active provider or invalid request body.
+
+  ```json
+  {
+    "error": "Customer provider (stripe) does not match active provider (polar)"
+  }
+  ```
+</Accordion>
+
+<Accordion title="500 Internal Server Error">
+  Returned when an unexpected error occurs.
+
+  ```json
+  {
+    "error": "Internal Server Error"
+  }
+  ```
+</Accordion>
+
+## Implementation Details
+
+The endpoint follows this workflow:
+
+1. **Authentication Check** - Verifies the user has an active session
+2. **Find Customer** - Queries the database for the customer record using `userId`
+3. **Provider Validation** - Ensures the customer's provider matches the currently active payment provider
+4. **Create Portal Session** - Calls the payment adapter's `createPortal()` method
+5. **Return URL** - Returns the portal URL for client-side redirect
+
+### Source Code Reference
+
+The implementation can be found in `src/app/api/payments/portal/route.ts`:
+
+```typescript
+export async function POST(req: Request) {
+  const session = await auth.api.getSession({ headers: await headers() })
+  
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { returnUrl } = await req.json()
+  const adapter = getPaymentAdapter()
+
+  const userCustomer = await db.query.customer.findFirst({
+    where: eq(customer.userId, session.user.id),
+  })
+
+  if (!userCustomer) {
+    return NextResponse.json({ error: 'No customer found' }, { status: 404 })
+  }
+
+  const portalSession = await adapter.createPortal(
+    userCustomer.providerCustomerId, 
+    returnUrl
+  )
+
+  return NextResponse.json(portalSession)
+}
+```
+
+## Provider Support
+
+All payment providers implement the `createPortal()` method:
+
+- **Stripe** - Creates a Stripe Billing Portal session
+- **Polar** - Returns the Polar dashboard URL
+- **Lemon Squeezy** - Creates a customer portal session
+
+## Usage Example
+
+Here's how to use the portal endpoint in a React component:
+
+```tsx
+'use client'
+
+import { useState } from 'react'
+
+export function ManageBillingButton() {
+  const [loading, setLoading] = useState(false)
+
+  const openPortal = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/payments/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          returnUrl: window.location.href
+        })
+      })
+
+      const data = await response.json()
+      
+      if (data.url) {
+        window.location.href = data.url
+      }
+    } catch (error) {
+      console.error('Portal error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button onClick={openPortal} disabled={loading}>
+      {loading ? 'Loading...' : 'Manage Billing'}
+    </button>
+  )
+}
+```
+
+## Next Steps
+
+- [Create checkout sessions](/api/payments/checkout)
+- [Handle webhook events](/api/payments/webhooks)
+- [Learn about payment providers](/payments/overview)

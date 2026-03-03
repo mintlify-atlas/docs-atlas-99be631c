@@ -94,6 +94,8 @@
             "group": "Payments",
             "pages": [
               "api/payments/checkout",
+              "api/payments/portal",
+              "api/payments/subscription",
               "api/payments/webhooks"
             ]
           },

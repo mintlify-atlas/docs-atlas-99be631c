@@ -1,0 +1,312 @@
+---
+title: Get subscription
+description: API endpoint to retrieve the current user's subscription details
+---
+
+The subscription endpoint allows authenticated users to retrieve their current subscription information, including plan details, status, and billing cycle.
+
+## Endpoint
+
+```
+GET /api/payments/subscription
+```
+
+## Authentication
+
+This endpoint requires authentication. The user must have an active session with a valid JWT token.
+
+## Request
+
+No request body is required. Simply make a GET request to the endpoint with valid authentication cookies.
+
+### Example Request
+
+```typescript
+const response = await fetch('/api/payments/subscription', {
+  method: 'GET',
+  headers: {
+    'Content-Type': 'application/json',
+  }
+})
+
+const data = await response.json()
+console.log(data.subscription)
+```
+
+```bash cURL
+curl -X GET https://yourdomain.com/api/payments/subscription \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better-auth.session_token=..."
+```
+
+## Response
+
+<ResponseField name="subscription" type="object | null">
+  The user's subscription details, or `null` if they don't have an active subscription.
+
+  <Expandable title="Subscription object">
+    <ResponseField name="id" type="string">
+      Unique subscription identifier
+    </ResponseField>
+
+    <ResponseField name="userId" type="string">
+      ID of the user who owns this subscription
+    </ResponseField>
+
+    <ResponseField name="customerId" type="string">
+      Customer ID from the database
+    </ResponseField>
+
+    <ResponseField name="provider" type="string">
+      Payment provider: `stripe`, `polar`, or `lemonsqueezy`
+    </ResponseField>
+
+    <ResponseField name="providerSubscriptionId" type="string">
+      Subscription ID from the payment provider
+    </ResponseField>
+
+    <ResponseField name="status" type="string">
+      Current subscription status: `active`, `canceled`, `past_due`, `trialing`, `incomplete`
+    </ResponseField>
+
+    <ResponseField name="plan" type="string">
+      Subscription plan: `free`, `starter`, `pro`, or `enterprise`
+    </ResponseField>
+
+    <ResponseField name="interval" type="string | null">
+      Billing interval: `month`, `year`, or `null` for one-time payments
+    </ResponseField>
+
+    <ResponseField name="amount" type="string">
+      Subscription amount in decimal format (e.g., "29.90")
+    </ResponseField>
+
+    <ResponseField name="currency" type="string">
+      Currency code (e.g., "usd", "eur")
+    </ResponseField>
+
+    <ResponseField name="currentPeriodStart" type="string">
+      Start of the current billing period (ISO 8601 timestamp)
+    </ResponseField>
+
+    <ResponseField name="currentPeriodEnd" type="string">
+      End of the current billing period (ISO 8601 timestamp)
+    </ResponseField>
+
+    <ResponseField name="cancelAtPeriodEnd" type="boolean">
+      Whether the subscription is set to cancel at period end
+    </ResponseField>
+
+    <ResponseField name="canceledAt" type="string | null">
+      When the subscription was canceled (ISO 8601 timestamp or null)
+    </ResponseField>
+
+    <ResponseField name="trialStart" type="string | null">
+      Trial start date (ISO 8601 timestamp or null)
+    </ResponseField>
+
+    <ResponseField name="trialEnd" type="string | null">
+      Trial end date (ISO 8601 timestamp or null)
+    </ResponseField>
+
+    <ResponseField name="createdAt" type="string">
+      When the subscription was created (ISO 8601 timestamp)
+    </ResponseField>
+
+    <ResponseField name="updatedAt" type="string">
+      When the subscription was last updated (ISO 8601 timestamp)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Success Response (200)
+
+```json
+{
+  "subscription": {
+    "id": "sub_abc123",
+    "userId": "user_xyz789",
+    "customerId": "cus_def456",
+    "provider": "stripe",
+    "providerSubscriptionId": "sub_1234567890",
+    "status": "active",
+    "plan": "pro",
+    "interval": "month",
+    "amount": "29.90",
+    "currency": "usd",
+    "currentPeriodStart": "2024-01-01T00:00:00.000Z",
+    "currentPeriodEnd": "2024-02-01T00:00:00.000Z",
+    "cancelAtPeriodEnd": false,
+    "canceledAt": null,
+    "trialStart": null,
+    "trialEnd": null,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+### No Subscription Response (200)
+
+If the user doesn't have a subscription, the response will be:
+
+```json
+{
+  "subscription": null
+}
+```
+
+### Error Responses
+
+<Accordion title="401 Unauthorized">
+  Returned when the user is not authenticated.
+
+  ```json
+  {
+    "error": "Unauthorized"
+  }
+  ```
+</Accordion>
+
+<Accordion title="500 Internal Server Error">
+  Returned when an unexpected error occurs.
+
+  ```json
+  {
+    "error": "Internal Server Error"
+  }
+  ```
+</Accordion>
+
+## Implementation Details
+
+The endpoint retrieves the most recently updated subscription for the authenticated user:
+
+```typescript
+export async function GET(req: Request) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const userSubscription = await db.query.subscription.findFirst({
+    where: eq(subscription.userId, session.user.id),
+    orderBy: (subscriptions, { desc }) => [desc(subscriptions.updatedAt)],
+  })
+
+  return NextResponse.json({ subscription: userSubscription || null })
+}
+```
+
+### Source Code Reference
+
+The implementation can be found in `src/app/api/payments/subscription/route.ts:9-32`.
+
+## Usage Examples
+
+### React Hook
+
+```tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+
+interface Subscription {
+  id: string
+  plan: string
+  status: string
+  currentPeriodEnd: string
+  // ... other fields
+}
+
+export function useSubscription() {
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const response = await fetch('/api/payments/subscription')
+        const data = await response.json()
+        setSubscription(data.subscription)
+      } catch (error) {
+        console.error('Failed to fetch subscription:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchSubscription()
+  }, [])
+
+  return { subscription, loading }
+}
+```
+
+### Server Component
+
+```tsx
+import { headers } from 'next/headers'
+import { auth } from '@/lib/auth'
+import { db } from '@/database'
+import { eq } from 'drizzle-orm'
+import { subscription } from '@/database/schema'
+
+export default async function SubscriptionPage() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  if (!session) {
+    return <div>Please log in</div>
+  }
+
+  const userSubscription = await db.query.subscription.findFirst({
+    where: eq(subscription.userId, session.user.id),
+    orderBy: (subscriptions, { desc }) => [desc(subscriptions.updatedAt)],
+  })
+
+  if (!userSubscription) {
+    return <div>No active subscription</div>
+  }
+
+  return (
+    <div>
+      <h1>Your Subscription</h1>
+      <p>Plan: {userSubscription.plan}</p>
+      <p>Status: {userSubscription.status}</p>
+      <p>Renews: {new Date(userSubscription.currentPeriodEnd).toLocaleDateString()}</p>
+    </div>
+  )
+}
+```
+
+## Subscription Status Values
+
+<CardGroup cols={2}>
+  <Card title="active" icon="circle-check">
+    Subscription is active and in good standing
+  </Card>
+  <Card title="trialing" icon="flask">
+    Subscription is in trial period
+  </Card>
+  <Card title="past_due" icon="clock">
+    Payment failed, subscription at risk
+  </Card>
+  <Card title="canceled" icon="circle-xmark">
+    Subscription has been canceled
+  </Card>
+  <Card title="incomplete" icon="circle-pause">
+    Initial payment failed or pending
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+- [Create checkout sessions](/api/payments/checkout)
+- [Access customer portal](/api/payments/portal)
+- [Handle webhooks](/api/payments/webhooks)
+- [Learn about database schema](/api/database/schema)
