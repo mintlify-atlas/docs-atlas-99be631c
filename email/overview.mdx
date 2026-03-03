@@ -1,0 +1,408 @@
+---
+title: 'Email Overview'
+description: 'Learn about the email system in ShipFree, including architecture, templates, and how to send emails'
+icon: 'envelope'
+---
+
+## Introduction
+
+ShipFree includes a flexible email system that supports multiple email providers with automatic fallback. The system is designed to:
+
+- Support multiple email providers (Resend, Postmark, Plunk, Nodemailer)
+- Auto-discover configured providers based on environment variables
+- Provide pre-built React Email templates for authentication flows
+- Fall back gracefully when no provider is configured (logs to console)
+- Allow easy switching between providers without code changes
+
+## Architecture
+
+The email system consists of three main layers:
+
+### 1. Mailer Layer
+
+The mailer provides the main API for sending emails:
+
+```typescript
+import { sendEmail, sendBatchEmails } from '@/lib/messaging/email';
+
+// Send a single email
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Welcome to ShipFree',
+  html: '<h1>Welcome!</h1>',
+});
+
+// Send batch emails
+await sendBatchEmails({
+  emails: [
+    { to: 'user1@example.com', subject: 'Hello 1', html: '<p>Hi</p>' },
+    { to: 'user2@example.com', subject: 'Hello 2', html: '<p>Hi</p>' },
+  ],
+});
+```
+
+### 2. Provider Layer
+
+Providers handle the actual email sending. ShipFree automatically uses the first configured provider based on this preference order:
+
+1. **Resend** (recommended for production)
+2. **Postmark**
+3. **Nodemailer** (SMTP)
+4. **Plunk**
+5. **Custom** (user-defined)
+6. **Log** (fallback - logs to console)
+
+You can explicitly set a provider via the `EMAIL_PROVIDER` environment variable:
+
+```bash
+EMAIL_PROVIDER=resend  # or postmark, nodemailer, plunk, log
+```
+
+### 3. Template Layer
+
+Email templates are built with [React Email](https://react.email), providing:
+
+- Type-safe React components
+- Responsive HTML email generation
+- Consistent branding across all emails
+- Preview mode for development
+
+## Available Email Templates
+
+ShipFree includes three pre-built authentication email templates:
+
+### OTP Verification Email
+
+Used for email verification, sign-in codes, and password reset verification.
+
+**File:** `src/components/emails/auth/otp-verification-email.tsx`
+
+```tsx
+import { renderOTPEmail, getEmailSubject } from '@/components/emails';
+
+await sendEmail({
+  to: user.email,
+  subject: getEmailSubject('email-verification'),
+  html: await renderOTPEmail(otp, user.email, 'email-verification'),
+});
+```
+
+**Features:**
+- Large, easy-to-read verification code
+- Automatic expiration notice (15 minutes)
+- Security warning not to share code
+- Supports three types: `sign-in`, `email-verification`, `forget-password`
+
+### Reset Password Email
+
+Sends a password reset link to users.
+
+**File:** `src/components/emails/auth/reset-password-email.tsx`
+
+```tsx
+import { renderPasswordResetEmail, getEmailSubject } from '@/components/emails';
+
+await sendEmail({
+  to: user.email,
+  subject: getEmailSubject('reset-password'),
+  html: await renderPasswordResetEmail(user.name, resetLink),
+});
+```
+
+**Features:**
+- Prominent "Reset Password" button
+- Personalized greeting
+- Link expiration notice (24 hours)
+- Security disclaimer
+
+### Welcome Email
+
+Sent to new users after successful registration.
+
+**File:** `src/components/emails/auth/welcome-email.tsx`
+
+```tsx
+import { renderWelcomeEmail, getEmailSubject } from '@/components/emails';
+
+await sendEmail({
+  to: user.email,
+  subject: getEmailSubject('welcome'),
+  html: await renderWelcomeEmail(user.name),
+});
+```
+
+**Features:**
+- Friendly welcome message
+- "Get Started" call-to-action button
+- Personal touch from founder
+- Encourages user engagement
+
+## Creating Custom Email Templates
+
+You can create custom email templates using React Email:
+
+### Step 1: Create a New Template
+
+Create a new file in `src/components/emails/`:
+
+```tsx
+// src/components/emails/notification-email.tsx
+import { Text, Link } from '@react-email/components';
+import { baseStyles } from '@/components/emails/_styles';
+import { EmailLayout } from '@/components/emails/components/email-layout';
+import { getBrandConfig } from '@/config/branding';
+
+interface NotificationEmailProps {
+  userName: string;
+  message: string;
+  actionUrl?: string;
+}
+
+export function NotificationEmail({
+  userName,
+  message,
+  actionUrl,
+}: NotificationEmailProps) {
+  const brand = getBrandConfig();
+
+  return (
+    <EmailLayout preview={`New notification from ${brand.name}`}>
+      <Text style={baseStyles.paragraph}>Hi {userName},</Text>
+      <Text style={baseStyles.paragraph}>{message}</Text>
+
+      {actionUrl && (
+        <Link href={actionUrl} style={{ textDecoration: 'none' }}>
+          <Text style={baseStyles.button}>View Details</Text>
+        </Link>
+      )}
+    </EmailLayout>
+  );
+}
+```
+
+### Step 2: Add a Render Function
+
+Update `src/components/emails/render.ts`:
+
+```tsx
+import { render } from '@react-email/components';
+import { NotificationEmail } from './notification-email';
+
+export async function renderNotificationEmail(
+  userName: string,
+  message: string,
+  actionUrl?: string
+): Promise<string> {
+  return await render(NotificationEmail({ userName, message, actionUrl }));
+}
+```
+
+### Step 3: Add a Subject
+
+Update `src/components/emails/subjects.ts`:
+
+```tsx
+export type EmailSubjectType =
+  | 'sign-in'
+  | 'email-verification'
+  | 'forget-password'
+  | 'reset-password'
+  | 'invitation'
+  | 'welcome'
+  | 'notification'; // Add new type
+
+export function getEmailSubject(type: EmailSubjectType): string {
+  const brandName = getBrandConfig().name;
+
+  switch (type) {
+    // ... existing cases
+    case 'notification':
+      return `New notification from ${brandName}`;
+    default:
+      return brandName;
+  }
+}
+```
+
+### Step 4: Send Your Email
+
+```tsx
+import { sendEmail } from '@/lib/messaging/email';
+import { renderNotificationEmail, getEmailSubject } from '@/components/emails';
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: getEmailSubject('notification'),
+  html: await renderNotificationEmail('John', 'You have a new message!', 'https://app.com/messages'),
+});
+```
+
+## Available Styling Components
+
+ShipFree provides pre-styled components in `src/components/emails/_styles/`:
+
+- **paragraph** - Standard text styling
+- **button** - Call-to-action button
+- **code** - Monospace code display (great for OTP codes)
+- **codeContainer** - Container for code blocks
+- **divider** - Horizontal rule separator
+- **footerText** - Smaller, muted text for disclaimers
+- **header** - Email header section
+- **content** - Main content wrapper
+
+## Email Layout Components
+
+Use the shared layout components for consistency:
+
+### EmailLayout
+
+Wraps your email with HTML structure, logo, and footer:
+
+```tsx
+import { EmailLayout } from '@/components/emails/components/email-layout';
+
+<EmailLayout preview="Preview text shown in inbox">
+  {/* Your email content */}
+</EmailLayout>
+```
+
+### EmailFooter
+
+Automatically included in `EmailLayout` with:
+- Unsubscribe link (for marketing emails)
+- Company address
+- Brand information
+
+## Testing Emails in Development
+
+ShipFree defaults to the **log provider** when no email service is configured, which:
+
+- Logs email details to the console
+- Never sends actual emails
+- Returns success immediately
+- Perfect for development and testing
+
+To use log provider explicitly:
+
+```bash
+EMAIL_PROVIDER=log
+```
+
+Console output example:
+```
+📧 Email not sent (log provider): {
+  to: 'user@example.com',
+  subject: 'Welcome to ShipFree',
+  from: 'noreply@yourdomain.com',
+  hasHtml: true,
+  hasText: false,
+  attachments: 0
+}
+```
+
+### Preview with React Email Dev Server
+
+ShipFree includes the React Email preview server:
+
+```bash
+bun run email:dev
+```
+
+This opens a browser interface where you can:
+- Preview all email templates
+- Test with different props
+- View HTML and plain text versions
+- Test responsiveness
+
+## Switching Between Providers
+
+To switch email providers, simply update your environment variables:
+
+1. **Add new provider credentials** (see provider-specific pages)
+2. **Set EMAIL_PROVIDER** (optional - auto-discovery works too)
+3. **Restart your application**
+
+No code changes required! The mailer automatically detects and uses the configured provider.
+
+## Checking Email Service Status
+
+You can check if an email service is configured:
+
+```typescript
+import { hasEmailService, getActiveProviderName } from '@/lib/messaging/email';
+
+if (hasEmailService()) {
+  console.log('Using provider:', getActiveProviderName());
+  // Send emails
+} else {
+  console.log('No email provider configured - emails will be logged only');
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use environment-based configuration">
+    Never hardcode email provider logic. Let environment variables control which provider is used.
+  </Accordion>
+
+  <Accordion title="Test with log provider first">
+    Always test email flows with `EMAIL_PROVIDER=log` before enabling real providers.
+  </Accordion>
+
+  <Accordion title="Include both HTML and text versions">
+    While templates generate HTML, consider adding plain text alternatives for better deliverability:
+    
+    ```typescript
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      html: htmlContent,
+      text: 'Plain text version', // Add this
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Use batch sending for multiple emails">
+    When sending to multiple recipients, use `sendBatchEmails()` for better performance:
+    
+    ```typescript
+    // Good - uses native batch API if available
+    await sendBatchEmails({ emails: [...] });
+    
+    // Avoid - sends emails one by one
+    for (const email of emails) {
+      await sendEmail(email);
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle email failures gracefully">
+    Always check the result of email sends:
+    
+    ```typescript
+    const result = await sendEmail({ ... });
+    if (!result.success) {
+      console.error('Email failed:', result.message);
+      // Handle failure (retry, notify admin, etc.)
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Resend Setup" icon="bolt" href="/email/resend">
+    Configure Resend for production email delivery
+  </Card>
+  <Card title="Postmark Setup" icon="envelope" href="/email/postmark">
+    Set up Postmark for transactional emails
+  </Card>
+  <Card title="Plunk Setup" icon="paper-plane" href="/email/plunk">
+    Use Plunk for email campaigns
+  </Card>
+  <Card title="Nodemailer Setup" icon="server" href="/email/nodemailer">
+    Configure SMTP with Nodemailer
+  </Card>
+</CardGroup>

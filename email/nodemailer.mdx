@@ -1,0 +1,548 @@
+---
+title: 'Nodemailer (SMTP)'
+description: 'Configure Nodemailer for SMTP email sending in ShipFree'
+icon: 'server'
+---
+
+## Overview
+
+Nodemailer is a flexible SMTP client that allows you to send emails through any SMTP server. Use Nodemailer when you:
+
+- Have an existing SMTP server
+- Use a provider not natively supported (Gmail, SendGrid SMTP, Amazon SES, etc.)
+- Need full control over email transport
+- Want to use your company's email infrastructure
+- Need to send emails through custom mail servers
+
+<Info>
+  Nodemailer is the third provider ShipFree checks during auto-discovery. It will be used if Resend and Postmark aren't configured.
+</Info>
+
+## Prerequisites
+
+1. Access to an SMTP server
+2. SMTP credentials (host, port, username, password)
+
+## Setup Instructions
+
+### Step 1: Gather SMTP Credentials
+
+You'll need the following from your email provider:
+
+- **SMTP Host** - Server address (e.g., `smtp.gmail.com`)
+- **SMTP Port** - Usually `587` (STARTTLS) or `465` (TLS/SSL)
+- **Username** - Your email address or SMTP username
+- **Password** - Your email password or app-specific password
+- **Secure** - `true` for port 465, `false` for port 587
+
+<Warning>
+  For Gmail and other providers with 2FA, you'll need an **app-specific password**, not your regular account password.
+</Warning>
+
+### Step 2: Configure Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# Required
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-email@example.com
+SMTP_PASS=your-password-or-app-password
+
+# Optional - "true" for TLS/SSL (port 465), "false" for STARTTLS (port 587)
+SMTP_SECURE=false
+
+# Optional - explicitly set Nodemailer as provider
+EMAIL_PROVIDER=nodemailer
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Step 3: Install Nodemailer
+
+Nodemailer is already included in ShipFree:
+
+```json
+// package.json (already installed)
+"nodemailer": "^7.0.12",
+"@types/nodemailer": "^7.0.4"
+```
+
+If you need to reinstall:
+
+```bash
+bun add nodemailer
+bun add -D @types/nodemailer
+```
+
+### Step 4: Test Your Configuration
+
+```typescript
+import { sendEmail, getActiveProviderName } from '@/lib/messaging/email';
+
+// Verify Nodemailer is active
+console.log('Active provider:', getActiveProviderName()); // Should output: 'nodemailer'
+
+// Send test email
+const result = await sendEmail({
+  to: 'test@example.com',
+  subject: 'Test from ShipFree via Nodemailer',
+  html: '<h1>Success!</h1><p>SMTP is configured correctly.</p>',
+});
+
+if (result.success) {
+  console.log('Email sent via SMTP!', result.data);
+} else {
+  console.error('Failed:', result.message);
+}
+```
+
+## Common SMTP Providers
+
+<AccordionGroup>
+  <Accordion title="Gmail">
+    **Setup:**
+    1. Enable 2-factor authentication on your Google account
+    2. Go to Google Account → Security → App passwords
+    3. Create a new app password for "Mail"
+    4. Use the generated password (not your account password)
+
+    **Configuration:**
+    ```bash
+    SMTP_HOST=smtp.gmail.com
+    SMTP_PORT=587
+    SMTP_USER=your-email@gmail.com
+    SMTP_PASS=your-app-specific-password
+    SMTP_SECURE=false
+    ```
+
+    <Warning>
+      Gmail has a sending limit of 500 emails/day for free accounts and 2,000/day for Google Workspace.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Amazon SES">
+    **Setup:**
+    1. Sign up for [Amazon SES](https://aws.amazon.com/ses/)
+    2. Verify your domain or email address
+    3. Create SMTP credentials in the SES console
+    4. Note your SMTP endpoint (region-specific)
+
+    **Configuration:**
+    ```bash
+    SMTP_HOST=email-smtp.us-east-1.amazonaws.com
+    SMTP_PORT=587
+    SMTP_USER=your-ses-smtp-username
+    SMTP_PASS=your-ses-smtp-password
+    SMTP_SECURE=false
+    ```
+
+    <Info>
+      SES starts in sandbox mode. Request production access to send to any email address.
+    </Info>
+  </Accordion>
+
+  <Accordion title="SendGrid SMTP">
+    **Setup:**
+    1. Create a [SendGrid account](https://sendgrid.com)
+    2. Go to Settings → API Keys
+    3. Create an API key with "Mail Send" permissions
+    4. Use "apikey" as username and the API key as password
+
+    **Configuration:**
+    ```bash
+    SMTP_HOST=smtp.sendgrid.net
+    SMTP_PORT=587
+    SMTP_USER=apikey
+    SMTP_PASS=your-sendgrid-api-key
+    SMTP_SECURE=false
+    ```
+  </Accordion>
+
+  <Accordion title="Microsoft 365 / Outlook">
+    **Setup:**
+    1. Ensure SMTP authentication is enabled for your account
+    2. Use your Microsoft 365 email and password
+    3. May require app password if 2FA is enabled
+
+    **Configuration:**
+    ```bash
+    SMTP_HOST=smtp.office365.com
+    SMTP_PORT=587
+    SMTP_USER=your-email@company.com
+    SMTP_PASS=your-password
+    SMTP_SECURE=false
+    ```
+  </Accordion>
+
+  <Accordion title="Mailgun SMTP">
+    **Setup:**
+    1. Create a [Mailgun account](https://mailgun.com)
+    2. Verify your domain
+    3. Get SMTP credentials from Mailgun dashboard
+
+    **Configuration:**
+    ```bash
+    SMTP_HOST=smtp.mailgun.org
+    SMTP_PORT=587
+    SMTP_USER=postmaster@yourdomain.com
+    SMTP_PASS=your-mailgun-password
+    SMTP_SECURE=false
+    ```
+  </Accordion>
+
+  <Accordion title="Custom/Self-Hosted SMTP">
+    **Configuration:**
+    ```bash
+    SMTP_HOST=mail.yourdomain.com
+    SMTP_PORT=587  # or 465 for SSL
+    SMTP_USER=smtp-username
+    SMTP_PASS=smtp-password
+    SMTP_SECURE=false  # or true for port 465
+    ```
+
+    <Tip>
+      Contact your hosting provider or IT department for SMTP server details.
+    </Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Features
+
+### Email Attachments
+
+Nodemailer has excellent attachment support:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email';
+import { readFileSync } from 'fs';
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Invoice #1234',
+  html: '<p>Please find your invoice attached.</p>',
+  attachments: [
+    {
+      filename: 'invoice.pdf',
+      content: readFileSync('./invoice.pdf'),
+      contentType: 'application/pdf',
+    },
+    {
+      filename: 'logo.png',
+      content: readFileSync('./logo.png'),
+      contentType: 'image/png',
+      disposition: 'inline', // Embed in email
+    },
+  ],
+});
+```
+
+### Custom Headers
+
+Full control over email headers:
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Newsletter',
+  html: '<p>Monthly update</p>',
+  emailType: 'marketing',
+  includeUnsubscribe: true,
+  unsubscribeInfo: {
+    baseUrl: 'https://yourdomain.com',
+    token: 'user-token',
+    writerId: 'newsletter',
+  },
+});
+```
+
+### Reply-To Address
+
+```typescript
+await sendEmail({
+  to: 'customer@example.com',
+  subject: 'Support Request',
+  html: '<p>Your ticket has been created.</p>',
+  replyTo: 'support@yourdomain.com',
+});
+```
+
+### Plain Text Alternative
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Welcome',
+  html: '<h1>Welcome!</h1><p>Thanks for joining.</p>',
+  text: 'Welcome!\n\nThanks for joining.',
+});
+```
+
+### Batch Email Sending
+
+Nodemailer sends batch emails sequentially:
+
+```typescript
+import { sendBatchEmails } from '@/lib/messaging/email';
+
+await sendBatchEmails({
+  emails: [
+    { to: 'user1@example.com', subject: 'Hi', html: '<p>Hello</p>' },
+    { to: 'user2@example.com', subject: 'Hi', html: '<p>Hello</p>' },
+  ],
+});
+```
+
+<Info>
+  While functional, batch sending via SMTP is slower than providers with native batch APIs (like Resend or Postmark).
+</Info>
+
+## Environment Variables Reference
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|----------|
+| `SMTP_HOST` | Yes | SMTP server hostname | `smtp.gmail.com` |
+| `SMTP_PORT` | Yes | SMTP server port | `587` or `465` |
+| `SMTP_USER` | Yes | SMTP username/email | `user@example.com` |
+| `SMTP_PASS` | Yes | SMTP password | `your-password` |
+| `SMTP_SECURE` | No | Use TLS/SSL (`true` for 465, `false` for 587) | `false` |
+| `EMAIL_PROVIDER` | No | Force Nodemailer as provider | `nodemailer` |
+| `DEFAULT_FROM_EMAIL` | No | Default sender email | `noreply@yourdomain.com` |
+| `DEFAULT_FROM_NAME` | No | Default sender name | `Your App Name` |
+
+## TLS vs. STARTTLS
+
+Understanding SMTP security:
+
+<Tabs>
+  <Tab title="Port 587 (STARTTLS)">
+    **Most common and recommended**
+
+    ```bash
+    SMTP_PORT=587
+    SMTP_SECURE=false
+    ```
+
+    - Connection starts unencrypted
+    - Upgrades to TLS via STARTTLS command
+    - Widely supported
+    - Recommended by most providers
+  </Tab>
+
+  <Tab title="Port 465 (TLS/SSL)">
+    **Implicit TLS**
+
+    ```bash
+    SMTP_PORT=465
+    SMTP_SECURE=true
+    ```
+
+    - Connection is encrypted from the start
+    - Uses implicit TLS (SMTPS)
+    - Older standard but still supported
+    - Some providers require this
+  </Tab>
+
+  <Tab title="Port 25 (Unencrypted)">
+    **Not recommended**
+
+    - Unencrypted connection
+    - Often blocked by ISPs
+    - Use only for local testing
+    - Never use in production
+  </Tab>
+</Tabs>
+
+## Development vs. Production
+
+### Development Setup
+
+For development, consider using:
+
+1. **Log Provider** (easiest):
+   ```bash
+   EMAIL_PROVIDER=log
+   ```
+
+2. **Ethereal Email** (test SMTP service):
+   ```typescript
+   // Create test account at https://ethereal.email
+   SMTP_HOST=smtp.ethereal.email
+   SMTP_PORT=587
+   SMTP_USER=your-ethereal-email
+   SMTP_PASS=your-ethereal-password
+   SMTP_SECURE=false
+   ```
+   
+   Emails are caught, not sent - view them at ethereal.email
+
+3. **Gmail** (for quick testing):
+   ```bash
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=your-gmail@gmail.com
+   SMTP_PASS=your-app-password
+   SMTP_SECURE=false
+   ```
+
+### Production Setup
+
+For production, use a reliable SMTP provider:
+
+```bash
+# .env.production
+SMTP_HOST=smtp.production-provider.com
+SMTP_PORT=587
+SMTP_USER=production-user
+SMTP_PASS=production-password
+SMTP_SECURE=false
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: 'Nodemailer not configured'">
+    Missing or incomplete SMTP configuration.
+    
+    **Solution:**
+    1. Verify all required env vars are set: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+    2. Check for typos in variable names
+    3. Restart your application
+  </Accordion>
+
+  <Accordion title="Error: 'Invalid login' or '535 Authentication failed'">
+    Incorrect SMTP credentials.
+    
+    **Solution:**
+    1. Verify `SMTP_USER` and `SMTP_PASS` are correct
+    2. For Gmail/Google: Use app-specific password, not account password
+    3. Check if 2FA requires app password
+    4. Verify account hasn't been locked
+  </Accordion>
+
+  <Accordion title="Error: 'Connection timeout' or 'ECONNREFUSED'">
+    Cannot connect to SMTP server.
+    
+    **Solution:**
+    1. Verify `SMTP_HOST` is correct
+    2. Check `SMTP_PORT` (587 or 465)
+    3. Ensure firewall allows SMTP connections
+    4. Try alternative port if blocked
+    5. Check if your ISP blocks SMTP
+  </Accordion>
+
+  <Accordion title="Error: 'Self-signed certificate'">
+    SSL/TLS certificate issue.
+    
+    **Solution:**
+    For development only, you can bypass (not recommended for production):
+    ```typescript
+    // In nodemailer.ts, add to transporter config:
+    tls: {
+      rejectUnauthorized: false
+    }
+    ```
+    
+    For production, fix the certificate issue on your SMTP server.
+  </Accordion>
+
+  <Accordion title="Emails going to spam">
+    Common deliverability issues:
+    
+    1. **Set up SPF record**: Add SMTP server to domain's SPF
+    2. **Configure DKIM**: Set up DKIM signing
+    3. **Add DMARC policy**: Configure DMARC for your domain
+    4. **Use authenticated domain**: Send from verified domain
+    5. **Warm up IP**: Gradually increase sending volume
+    6. **Avoid spam triggers**: Check email content for spam words
+  </Accordion>
+
+  <Accordion title="Slow email sending">
+    SMTP is inherently slower than API-based providers.
+    
+    **Improvements:**
+    1. Use connection pooling (Nodemailer does this automatically)
+    2. Switch to API-based provider (Resend, Postmark) for batches
+    3. Use background jobs for large sends
+    4. Reduce batch size
+  </Accordion>
+</AccordionGroup>
+
+## Code Reference
+
+The Nodemailer provider implementation:
+
+```
+src/lib/messaging/email/providers/nodemailer.ts
+```
+
+Key functions:
+- `createNodemailerProvider()` - Initialize provider (line 130)
+- `getTransporter()` - Create SMTP transport (line 37)
+- `send()` - Send single email (line 67)
+- `sendBatch()` - Send batch emails (line 96)
+
+## When to Use Nodemailer
+
+Nodemailer is ideal when you:
+
+<Check>
+  **Have existing SMTP infrastructure** - Company email server, self-hosted solution
+</Check>
+
+<Check>
+  **Need maximum flexibility** - Full control over transport and configuration
+</Check>
+
+<Check>
+  **Use unsupported provider** - Provider doesn't have a native ShipFree integration
+</Check>
+
+<Check>
+  **Require offline capability** - Local SMTP server for air-gapped systems
+</Check>
+
+Consider alternatives if you:
+
+<Warning>
+  - Need high-volume batch sending (use Resend/Postmark)
+  - Want simpler setup (use Resend/Postmark/Plunk)
+  - Need maximum deliverability (use Postmark)
+  - Want detailed analytics (use Resend/Postmark)
+</Warning>
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Nodemailer Documentation" icon="book" href="https://nodemailer.com">
+    Official Nodemailer docs and guides
+  </Card>
+  <Card title="SMTP Guide" icon="server" href="https://nodemailer.com/smtp/">
+    SMTP configuration reference
+  </Card>
+  <Card title="Ethereal Email" icon="envelope" href="https://ethereal.email">
+    Test SMTP service for development
+  </Card>
+  <Card title="Email Testing" icon="flask" href="https://nodemailer.com/about/testing/">
+    Testing strategies with Nodemailer
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<Steps>
+  <Step title="Set up SPF/DKIM">
+    Configure DNS records for better email deliverability
+  </Step>
+  <Step title="Test with Ethereal">
+    Use Ethereal Email to test without sending real emails
+  </Step>
+  <Step title="Monitor sending">
+    Implement logging to track email delivery and failures
+  </Step>
+</Steps>

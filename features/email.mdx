@@ -1,0 +1,524 @@
+---
+title: Email
+description: Flexible email system with support for multiple providers and React Email templates
+---
+
+ShipFree includes a provider-agnostic email system that supports multiple email services through a unified interface. Send transactional emails, marketing campaigns, and more with automatic provider fallback.
+
+## Architecture
+
+The email system uses a **mailer abstraction** that automatically selects the best available provider:
+
+```typescript src/lib/messaging/email/mailer.ts
+import { getProvider, getFirstAvailableProvider } from './providers'
+
+function getConfiguredProvider(): EmailProvider {
+  const explicitName = env.EMAIL_PROVIDER?.toLowerCase()
+  
+  // Use explicit provider if set
+  if (explicitName) {
+    const explicitProvider = getProvider(explicitName)
+    if (explicitProvider) return explicitProvider
+  }
+  
+  // Auto-discover first available provider
+  return getFirstAvailableProvider()
+}
+```
+
+<Info>
+  The system automatically falls back to console logging if no provider is configured, making development easier.
+</Info>
+
+## Supported Providers
+
+<CardGroup cols={2}>
+  <Card title="Resend" icon="paper-plane">
+    Modern email API with excellent deliverability (recommended)
+  </Card>
+  <Card title="Postmark" icon="envelope">
+    Transactional email service with detailed analytics
+  </Card>
+  <Card title="Plunk" icon="bolt">
+    Simple email API for developers
+  </Card>
+  <Card title="Nodemailer" icon="server">
+    SMTP support for any email provider
+  </Card>
+</CardGroup>
+
+### Provider Priority
+
+If `EMAIL_PROVIDER` is not set, the system auto-discovers providers in this order:
+
+1. **Custom** (if injected via `setCustomEmailProvider`)
+2. **Resend** (if `RESEND_API_KEY` is set)
+3. **Postmark** (if `POSTMARK_API_KEY` is set)
+4. **Plunk** (if `PLUNK_API_KEY` is set)
+5. **Nodemailer** (if SMTP credentials are set)
+6. **Log** (console fallback for development)
+
+## Configuration
+
+<Tabs>
+  <Tab title="Resend">
+    ```bash .env
+    EMAIL_PROVIDER=resend
+    RESEND_API_KEY=re_...
+    EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+    EMAIL_FROM_NAME="Your App Name"
+    ```
+    
+    <Note>
+      Resend is the recommended provider for ShipFree due to its simplicity and reliability.
+    </Note>
+  </Tab>
+  <Tab title="Postmark">
+    ```bash .env
+    EMAIL_PROVIDER=postmark
+    POSTMARK_API_KEY=...
+    EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+    EMAIL_FROM_NAME="Your App Name"
+    ```
+  </Tab>
+  <Tab title="Plunk">
+    ```bash .env
+    EMAIL_PROVIDER=plunk
+    PLUNK_API_KEY=...
+    EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+    EMAIL_FROM_NAME="Your App Name"
+    ```
+  </Tab>
+  <Tab title="Nodemailer (SMTP)">
+    ```bash .env
+    EMAIL_PROVIDER=nodemailer
+    SMTP_HOST=smtp.gmail.com
+    SMTP_PORT=587
+    SMTP_USER=your-email@gmail.com
+    SMTP_PASSWORD=your-app-password
+    EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+    EMAIL_FROM_NAME="Your App Name"
+    ```
+  </Tab>
+</Tabs>
+
+## Sending Emails
+
+The email system provides a simple API for sending emails:
+
+### Basic Usage
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email'
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Welcome to ShipFree',
+  html: '<h1>Welcome!</h1><p>Thanks for signing up.</p>',
+  emailType: 'transactional',
+})
+```
+
+### With React Email Templates
+
+<Steps>
+  <Step title="Create Email Template">
+    Email templates are located in `src/components/emails/`:
+    
+    ```tsx src/components/emails/auth/welcome-email.tsx
+    import { Html, Head, Body, Container, Heading, Text } from '@react-email/components'
+    
+    interface WelcomeEmailProps {
+      name?: string
+    }
+    
+    export function WelcomeEmail({ name = 'there' }: WelcomeEmailProps) {
+      return (
+        <Html>
+          <Head />
+          <Body>
+            <Container>
+              <Heading>Welcome to ShipFree!</Heading>
+              <Text>Hi {name},</Text>
+              <Text>Thanks for signing up. We're excited to have you.</Text>
+            </Container>
+          </Body>
+        </Html>
+      )
+    }
+    ```
+  </Step>
+  <Step title="Render Template">
+    Use the render function to convert React components to HTML:
+    
+    ```typescript src/components/emails/render.ts
+    import { render } from '@react-email/components'
+    import { WelcomeEmail } from './auth/welcome-email'
+    
+    export async function renderWelcomeEmail(name?: string) {
+      return await render(<WelcomeEmail name={name} />)
+    }
+    ```
+  </Step>
+  <Step title="Send Email">
+    ```typescript
+    import { sendEmail } from '@/lib/messaging/email'
+    import { renderWelcomeEmail, getEmailSubject } from '@/components/emails'
+    
+    const html = await renderWelcomeEmail(user.name)
+    
+    await sendEmail({
+      to: user.email,
+      subject: getEmailSubject('welcome'),
+      html,
+      from: 'noreply@yourdomain.com',
+      emailType: 'transactional',
+    })
+    ```
+  </Step>
+</Steps>
+
+## Email Types
+
+ShipFree distinguishes between two email types:
+
+<Tabs>
+  <Tab title="Transactional">
+    **Transactional emails** are triggered by user actions and contain critical information:
+    
+    - Password reset emails
+    - Email verification
+    - Order confirmations
+    - Account notifications
+    
+    ```typescript
+    await sendEmail({
+      to: user.email,
+      subject: 'Reset Your Password',
+      html: resetPasswordHtml,
+      emailType: 'transactional', // Default
+    })
+    ```
+    
+    <Note>
+      Transactional emails do not include unsubscribe links and should only be used for essential communications.
+    </Note>
+  </Tab>
+  <Tab title="Marketing">
+    **Marketing emails** are promotional and require unsubscribe options:
+    
+    - Newsletters
+    - Product announcements
+    - Promotional campaigns
+    
+    ```typescript
+    await sendEmail({
+      to: subscriber.email,
+      subject: 'New Features This Month',
+      html: newsletterHtml,
+      emailType: 'marketing',
+      includeUnsubscribe: true,
+      unsubscribeInfo: {
+        token: subscriber.unsubscribeToken,
+        writerId: 'newsletter',
+        baseUrl: process.env.NEXT_PUBLIC_APP_URL,
+      },
+    })
+    ```
+    
+    <Warning>
+      Marketing emails must include unsubscribe functionality to comply with anti-spam regulations (CAN-SPAM, GDPR).
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Built-in Email Templates
+
+ShipFree includes pre-built email templates for authentication flows:
+
+<CardGroup cols={3}>
+  <Card title="Welcome Email" icon="hand-wave">
+    Sent after email verification
+  </Card>
+  <Card title="Password Reset" icon="key">
+    Secure password reset flow
+  </Card>
+  <Card title="OTP Verification" icon="lock">
+    One-time password codes
+  </Card>
+</CardGroup>
+
+### Example: OTP Email
+
+```typescript src/lib/auth/auth.ts
+import { renderOTPEmail, getEmailSubject } from '@/components/emails'
+import { sendEmail, getFromEmailAddress } from '@/lib/messaging/email'
+
+emailOTP({
+  sendVerificationOTP: async ({ email, otp, type }) => {
+    const html = await renderOTPEmail(otp, email, type)
+    
+    const result = await sendEmail({
+      to: email,
+      subject: getEmailSubject(type),
+      html,
+      from: getFromEmailAddress(),
+      emailType: 'transactional',
+    })
+    
+    if (!result.success) {
+      throw new Error(`Failed to send verification code: ${result.message}`)
+    }
+  },
+})
+```
+
+## Batch Emails
+
+Send multiple emails efficiently:
+
+```typescript
+import { sendBatchEmails } from '@/lib/messaging/email'
+
+const result = await sendBatchEmails({
+  emails: [
+    {
+      to: 'user1@example.com',
+      subject: 'Welcome!',
+      html: '<p>Welcome user 1</p>',
+    },
+    {
+      to: 'user2@example.com',
+      subject: 'Welcome!',
+      html: '<p>Welcome user 2</p>',
+    },
+  ],
+})
+
+console.log(result.message) // "2/2 emails sent successfully"
+```
+
+<Tip>
+  If the provider supports native batch sending (like Resend), it will be used automatically. Otherwise, emails are sent sequentially.
+</Tip>
+
+## Email Validation
+
+Validate email addresses before sending:
+
+```typescript
+import { validateEmail, quickValidateEmail } from '@/lib/messaging/email'
+
+// Quick validation (format only)
+const quick = quickValidateEmail('user@example.com')
+if (!quick.isValid) {
+  console.error(quick.reason)
+}
+
+// Full validation (includes DNS checks)
+const full = await validateEmail('user@example.com')
+if (!full.isValid) {
+  console.error('Invalid email:', full.reason)
+}
+```
+
+## Server-Side Usage
+
+<Tabs>
+  <Tab title="Server Component">
+    ```tsx src/app/(auth)/verify/page.tsx
+    import { sendEmail } from '@/lib/messaging/email'
+    import { renderWelcomeEmail } from '@/components/emails'
+    
+    export default async function VerifyPage() {
+      // Send welcome email after verification
+      const sendWelcomeEmail = async (user: User) => {
+        const html = await renderWelcomeEmail(user.name)
+        
+        await sendEmail({
+          to: user.email,
+          subject: 'Welcome to ShipFree!',
+          html,
+          emailType: 'transactional',
+        })
+      }
+      
+      return <div>Email sent!</div>
+    }
+    ```
+  </Tab>
+  <Tab title="API Route">
+    ```typescript src/app/api/send-email/route.ts
+    import { sendEmail } from '@/lib/messaging/email'
+    import { NextRequest } from 'next/server'
+    
+    export async function POST(req: NextRequest) {
+      const { to, subject, html } = await req.json()
+      
+      const result = await sendEmail({
+        to,
+        subject,
+        html,
+        emailType: 'transactional',
+      })
+      
+      return Response.json(result)
+    }
+    ```
+  </Tab>
+  <Tab title="Server Action">
+    ```typescript src/app/actions/email.ts
+    'use server'
+    
+    import { sendEmail } from '@/lib/messaging/email'
+    
+    export async function sendNotificationEmail(userId: string) {
+      const user = await getUserById(userId)
+      
+      return await sendEmail({
+        to: user.email,
+        subject: 'Important Notification',
+        html: '<p>You have a new notification</p>',
+        emailType: 'transactional',
+      })
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Check Email Service Status
+
+```typescript
+import { hasEmailService, getActiveProviderName } from '@/lib/messaging/email'
+
+if (hasEmailService()) {
+  console.log('Email provider:', getActiveProviderName())
+} else {
+  console.warn('No email service configured')
+}
+```
+
+## Attachments
+
+Send files with emails:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email'
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Your Invoice',
+  html: '<p>Please find your invoice attached.</p>',
+  attachments: [
+    {
+      filename: 'invoice.pdf',
+      content: pdfBuffer,
+      contentType: 'application/pdf',
+    },
+  ],
+})
+```
+
+## Reply-To Headers
+
+```typescript
+await sendEmail({
+  to: 'customer@example.com',
+  subject: 'Support Request',
+  html: '<p>We received your support request.</p>',
+  replyTo: 'support@yourdomain.com',
+})
+```
+
+## Custom Provider
+
+Inject a custom email provider at runtime:
+
+```typescript
+import { setCustomEmailProvider } from '@/lib/messaging/email'
+import type { EmailProvider } from '@/lib/messaging/email'
+
+const myProvider: EmailProvider = {
+  name: 'custom',
+  send: async (data) => {
+    // Custom sending logic
+    return { success: true, message: 'Email sent' }
+  },
+}
+
+setCustomEmailProvider(myProvider)
+```
+
+## Error Handling
+
+The email system provides detailed error information:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email'
+
+const result = await sendEmail({
+  to: 'invalid-email',
+  subject: 'Test',
+  html: '<p>Test</p>',
+})
+
+if (!result.success) {
+  console.error('Email failed:', result.message)
+  // Handle error (retry, log, notify admin, etc.)
+}
+```
+
+<Warning>
+  Always check the `success` property before assuming an email was sent successfully.
+</Warning>
+
+## Development Mode
+
+Without any email provider configured, emails are logged to the console:
+
+```bash
+🔑 VERIFICATION CODE FOR LOGIN/SIGNUP
+{
+  email: 'user@example.com',
+  otp: '123456',
+  type: 'sign-in'
+}
+```
+
+<Tip>
+  This makes it easy to test authentication flows locally without setting up an email provider.
+</Tip>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Templates" icon="file-code">
+    Always use React Email templates for consistent branding
+  </Card>
+  <Card title="Validate First" icon="check">
+    Validate email addresses before sending to reduce bounces
+  </Card>
+  <Card title="Handle Errors" icon="exclamation-triangle">
+    Always check send results and implement retry logic
+  </Card>
+  <Card title="Respect Privacy" icon="shield">
+    Include unsubscribe links for marketing emails
+  </Card>
+</CardGroup>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="React Email" icon="react" href="https://react.email">
+    Build beautiful emails with React components
+  </Card>
+  <Card title="Resend Docs" icon="book" href="https://resend.com/docs">
+    Resend API documentation
+  </Card>
+  <Card title="Postmark Docs" icon="envelope" href="https://postmarkapp.com/developer">
+    Postmark developer guides
+  </Card>
+  <Card title="Email Best Practices" icon="lightbulb" href="https://sendgrid.com/blog/email-best-practices/">
+    Learn about email deliverability
+  </Card>
+</CardGroup>

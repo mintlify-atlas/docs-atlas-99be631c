@@ -1,0 +1,333 @@
+---
+title: Stripe Integration
+description: Set up and configure Stripe payments in ShipFree
+---
+
+Stripe is a powerful payment platform offering comprehensive billing, subscription management, and global payment support. It's the most feature-rich option in ShipFree.
+
+## Prerequisites
+
+- A Stripe account ([sign up here](https://dashboard.stripe.com/register))
+- Your ShipFree application running locally or deployed
+
+## Setup Instructions
+
+### Step 1: Get Your API Keys
+
+1. Log in to your [Stripe Dashboard](https://dashboard.stripe.com)
+2. Navigate to **Developers** → **API keys**
+3. Copy your **Secret key** (starts with `sk_test_` for test mode)
+4. You'll also need the **Publishable key** later (starts with `pk_test_`)
+
+<Warning>
+Never commit your secret key to version control. Use environment variables.
+</Warning>
+
+### Step 2: Create Products and Prices
+
+You need to create products in Stripe for each pricing plan.
+
+1. Go to **Products** in your Stripe Dashboard
+2. Click **Add product**
+3. Create products matching your plans (Starter, Pro, Enterprise)
+
+For each product:
+- Set the name (e.g., "Starter Plan")
+- Set the description
+- Add pricing:
+  - **Monthly**: $9.90/month (recurring)
+  - **Yearly**: $99/year (recurring)
+- Set the billing period
+- Save and copy the **Price ID** (starts with `price_`)
+
+### Step 3: Configure Environment Variables
+
+Add these variables to your `.env` file:
+
+```bash
+# Payment Provider Selection
+PAYMENT_PROVIDER=stripe
+
+# Stripe Secret Key (server-side)
+STRIPE_SECRET_KEY=sk_test_your_secret_key_here
+
+# Stripe Webhook Secret (from Step 5)
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+
+# Stripe Price IDs (client-side, for display)
+NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY=price_starter_monthly_id
+NEXT_PUBLIC_STRIPE_PRICE_STARTER_YEARLY=price_starter_yearly_id
+NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY=price_pro_monthly_id
+NEXT_PUBLIC_STRIPE_PRICE_PRO_YEARLY=price_pro_yearly_id
+NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE_MONTHLY=price_enterprise_monthly_id
+NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE_YEARLY=price_enterprise_yearly_id
+```
+
+<Info>
+The `NEXT_PUBLIC_` prefix makes these variables accessible in the browser. Only use it for non-sensitive data like Price IDs.
+</Info>
+
+### Step 4: Update Payment Configuration
+
+The price IDs are automatically read from environment variables in `src/config/payments.ts`. Verify your configuration:
+
+```typescript
+starter: {
+  name: 'Starter',
+  description: 'Great for small teams',
+  prices: {
+    stripe: [
+      {
+        productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY || '',
+        interval: 'month',
+        amount: 990, // $9.90
+        currency: 'usd',
+        seatBased: false,
+        trialPeriodDays: 14,
+        type: 'recurring',
+      },
+      // ... yearly pricing
+    ],
+  },
+  // ...
+}
+```
+
+### Step 5: Set Up Webhooks
+
+Stripe uses webhooks to notify your application about events (payments, subscription changes, etc.).
+
+#### For Local Development
+
+1. Install the [Stripe CLI](https://stripe.com/docs/stripe-cli):
+   ```bash
+   # macOS
+   brew install stripe/stripe-cli/stripe
+   
+   # Windows (via Scoop)
+   scoop install stripe
+   
+   # Linux
+   # Download from https://github.com/stripe/stripe-cli/releases
+   ```
+
+2. Log in to Stripe CLI:
+   ```bash
+   stripe login
+   ```
+
+3. Forward webhooks to your local server:
+   ```bash
+   stripe listen --forward-to localhost:3000/api/webhooks/payments
+   ```
+
+4. The CLI will output a webhook signing secret (starts with `whsec_`). Add it to your `.env`:
+   ```bash
+   STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_from_cli
+   ```
+
+#### For Production
+
+1. Go to **Developers** → **Webhooks** in your Stripe Dashboard
+2. Click **Add endpoint**
+3. Set the endpoint URL: `https://yourdomain.com/api/webhooks/payments`
+4. Select events to listen for:
+   - `customer.created`
+   - `customer.updated`
+   - `customer.deleted`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_succeeded`
+   - `invoice.payment_failed`
+   - `checkout.session.completed`
+
+5. Click **Add endpoint**
+6. Copy the **Signing secret** and add it to your production environment variables
+
+## Testing in Development
+
+### Test Mode
+
+Stripe provides test mode by default. Use test API keys (starting with `sk_test_` and `pk_test_`).
+
+### Test Cards
+
+Use these test card numbers for testing:
+
+| Card Number | Scenario |
+|-------------|----------|
+| `4242 4242 4242 4242` | Successful payment |
+| `4000 0025 0000 3155` | Requires authentication (3D Secure) |
+| `4000 0000 0000 9995` | Declined (insufficient funds) |
+| `4000 0000 0000 0341` | Declined (incorrect CVC) |
+
+- Use any future expiration date
+- Use any 3-digit CVC
+- Use any valid ZIP code
+
+### Testing Subscriptions
+
+1. Start your development server:
+   ```bash
+   bun dev
+   ```
+
+2. In another terminal, start Stripe webhook forwarding:
+   ```bash
+   stripe listen --forward-to localhost:3000/api/webhooks/payments
+   ```
+
+3. Navigate to your pricing page and create a checkout session
+4. Use a test card to complete the payment
+5. Verify the webhook events are received and processed
+
+### Testing the Customer Portal
+
+The Stripe Customer Portal allows customers to manage their subscriptions:
+
+```typescript
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+const adapter = getPaymentAdapter()
+const portal = await adapter.createPortal(
+  'cus_abc123', // Stripe customer ID
+  'https://yourdomain.com/dashboard'
+)
+
+// Redirect to portal.url
+```
+
+The portal allows customers to:
+- Update payment methods
+- View invoices
+- Cancel subscriptions
+- Update billing information
+
+## Stripe Implementation Details
+
+The Stripe adapter is implemented in `src/lib/payments/providers/stripe.ts`.
+
+### Key Features
+
+#### Checkout Sessions
+Creates Stripe Checkout sessions with:
+- Support for one-time and recurring payments
+- Trial periods
+- Promotional codes
+- Automatic tax calculation (if configured)
+
+```typescript:src/lib/payments/providers/stripe.ts
+async createCheckout(options: CheckoutOptions): Promise<CheckoutResult> {
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    customer: customer.providerCustomerId,
+    payment_method_types: ['card'],
+    line_items: [{
+      price: price.productId,
+      quantity: 1,
+    }],
+    mode: price.type === 'recurring' ? 'subscription' : 'payment',
+    success_url: successUrl || paymentConfig.providers.successUrl,
+    cancel_url: cancelUrl || paymentConfig.providers.cancelUrl,
+    allow_promotion_codes: true,
+  }
+  // ...
+}
+```
+
+#### Customer Management
+- Automatically creates or retrieves customers
+- Links customers to your user records
+- Stores customer metadata
+
+#### Subscription Handling
+- Retrieves subscription details
+- Maps Stripe status to unified status
+- Handles seat-based billing
+- Supports immediate or end-of-period cancellation
+
+#### Webhook Processing
+The adapter processes these Stripe webhook events:
+- `customer.created`, `customer.updated`, `customer.deleted`
+- `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+- `invoice.payment_succeeded`, `invoice.payment_failed`
+- `checkout.session.completed`
+
+Webhook signature validation:
+```typescript:src/lib/payments/providers/stripe.ts
+async validateWebhook(rawBody: string, signature: string): Promise<boolean> {
+  try {
+    this.stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      env.STRIPE_WEBHOOK_SECRET
+    )
+    return true
+  } catch (error) {
+    console.error('Stripe webhook signature validation failed:', error)
+    return false
+  }
+}
+```
+
+## Going Live
+
+### Pre-Launch Checklist
+
+- [ ] Replace test API keys with live keys (`sk_live_`, `pk_live_`)
+- [ ] Create live products and prices in Stripe
+- [ ] Update environment variables with live price IDs
+- [ ] Configure production webhook endpoint
+- [ ] Set up webhook signing secret for production
+- [ ] Enable [Stripe Radar](https://stripe.com/radar) for fraud prevention
+- [ ] Configure email receipts in Stripe Dashboard
+- [ ] Set up tax settings (if applicable)
+- [ ] Test the complete checkout flow in production
+
+### Security Best Practices
+
+1. **Never expose secret keys**: Keep `STRIPE_SECRET_KEY` server-side only
+2. **Validate webhooks**: Always verify webhook signatures
+3. **Use HTTPS**: Stripe requires HTTPS for production webhooks
+4. **Handle errors gracefully**: Don't expose Stripe errors to users
+5. **Log securely**: Don't log sensitive payment information
+
+## Troubleshooting
+
+### Webhook Not Received
+
+1. Check that Stripe CLI is running (for local dev)
+2. Verify webhook endpoint is accessible
+3. Check webhook logs in Stripe Dashboard
+4. Ensure `STRIPE_WEBHOOK_SECRET` is set correctly
+
+### Checkout Session Fails
+
+1. Verify `STRIPE_SECRET_KEY` is set
+2. Check that price IDs exist and are correct
+3. Ensure products are active in Stripe Dashboard
+4. Check Stripe Dashboard logs for detailed errors
+
+### Customer Portal Not Working
+
+1. Ensure customer exists in Stripe
+2. Verify customer ID format (remove `stripe_` prefix if present)
+3. Check that customer has an active subscription
+
+## Additional Resources
+
+- [Stripe API Documentation](https://stripe.com/docs/api)
+- [Stripe Testing Guide](https://stripe.com/docs/testing)
+- [Stripe Webhook Best Practices](https://stripe.com/docs/webhooks/best-practices)
+- [Stripe Customer Portal](https://stripe.com/docs/billing/subscriptions/integrating-customer-portal)
+- [Stripe Checkout](https://stripe.com/docs/payments/checkout)
+
+## Support
+
+For Stripe-specific issues:
+- [Stripe Support](https://support.stripe.com)
+- [Stripe Discord](https://discord.gg/stripe)
+
+For ShipFree integration issues:
+- Check the source code in `src/lib/payments/providers/stripe.ts`
+- Review webhook handling in `src/app/api/webhooks/payments/route.ts`

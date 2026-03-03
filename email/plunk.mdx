@@ -1,0 +1,386 @@
+---
+title: 'Plunk'
+description: 'Configure Plunk as your email provider in ShipFree'
+icon: 'paper-plane'
+---
+
+## Overview
+
+Plunk is an open-source email platform designed for developers. It's a great choice if you want:
+
+- Simple API with minimal configuration
+- Open-source transparency
+- Developer-friendly pricing
+- Clean, modern dashboard
+- Easy template management
+
+<Info>
+  Plunk is the fourth provider ShipFree checks during auto-discovery. It will be used if Resend, Postmark, and Nodemailer aren't configured.
+</Info>
+
+<Warning>
+  Plunk does not support native batch email sending. When using `sendBatchEmails()`, ShipFree will send emails sequentially (one by one).
+</Warning>
+
+## Prerequisites
+
+1. A [Plunk account](https://useplunk.com/signup)
+2. An API key
+
+## Setup Instructions
+
+### Step 1: Create a Plunk Account
+
+1. Sign up at [useplunk.com](https://useplunk.com/signup)
+2. Verify your email address
+3. Complete the onboarding
+
+### Step 2: Get Your API Key
+
+1. Navigate to **Settings** → **API**
+2. Copy your **Secret API Key**
+
+<Warning>
+  Keep your API key secure. Treat it like a password and never commit it to version control.
+</Warning>
+
+### Step 3: Configure Your Domain
+
+To send emails from your own domain:
+
+1. Go to **Settings** → **Domain**
+2. Enter your domain (e.g., `yourdomain.com`)
+3. Add the DNS records Plunk provides
+4. Wait for verification (usually 5-15 minutes)
+5. Set your default sender email
+
+<Tip>
+  For development, you can use Plunk's default domain without verification, but emails may be limited.
+</Tip>
+
+### Step 4: Configure Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# Required
+PLUNK_API_KEY=sk_your_plunk_api_key_here
+
+# Optional - explicitly set Plunk as provider
+EMAIL_PROVIDER=plunk
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Step 5: Install Plunk Package
+
+The Plunk package is already included in ShipFree:
+
+```json
+// package.json (already installed)
+"@plunk/node": "^3.0.3"
+```
+
+If you need to reinstall:
+
+```bash
+bun add @plunk/node
+```
+
+### Step 6: Test Your Configuration
+
+```typescript
+import { sendEmail, getActiveProviderName } from '@/lib/messaging/email';
+
+// Verify Plunk is active
+console.log('Active provider:', getActiveProviderName()); // Should output: 'plunk'
+
+// Send test email
+const result = await sendEmail({
+  to: 'test@example.com',
+  subject: 'Test from ShipFree via Plunk',
+  html: '<h1>Success!</h1><p>Plunk is working correctly.</p>',
+});
+
+if (result.success) {
+  console.log('Email sent via Plunk!', result.data);
+} else {
+  console.error('Failed:', result.message);
+}
+```
+
+## Features
+
+### Basic Email Sending
+
+Plunk focuses on simplicity:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email';
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Welcome to ShipFree',
+  html: '<h1>Welcome!</h1><p>Thanks for signing up.</p>',
+});
+```
+
+### Multiple Recipients
+
+Plunk can send to multiple recipients:
+
+```typescript
+await sendEmail({
+  to: ['user1@example.com', 'user2@example.com'],
+  subject: 'Team Update',
+  html: '<p>Important team announcement...</p>',
+});
+```
+
+<Info>
+  When sending to multiple recipients, each receives their own individual email (not CC'd).
+</Info>
+
+### HTML Email Focus
+
+Plunk is optimized for HTML emails. If you provide both HTML and text, HTML takes precedence:
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Newsletter',
+  html: '<h1>Monthly Update</h1><p>Check out what\'s new...</p>',
+  text: 'Monthly Update\n\nCheck out what\'s new...', // Used as fallback
+});
+```
+
+### Batch Sending (Sequential)
+
+Since Plunk doesn't have native batch support, ShipFree sends emails one by one:
+
+```typescript
+import { sendBatchEmails } from '@/lib/messaging/email';
+
+// These will be sent sequentially
+await sendBatchEmails({
+  emails: [
+    { to: 'user1@example.com', subject: 'Hi', html: '<p>Hello</p>' },
+    { to: 'user2@example.com', subject: 'Hi', html: '<p>Hello</p>' },
+    // ... more emails
+  ],
+});
+```
+
+<Warning>
+  For large batches (100+ emails), consider using a provider with native batch support like Resend or Postmark for better performance.
+</Warning>
+
+## Environment Variables Reference
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|----------|
+| `PLUNK_API_KEY` | Yes | Your Plunk secret API key | `sk_abc123...` |
+| `EMAIL_PROVIDER` | No | Force Plunk as provider | `plunk` |
+| `DEFAULT_FROM_EMAIL` | No | Default sender email | `noreply@yourdomain.com` |
+| `DEFAULT_FROM_NAME` | No | Default sender name | `Your App Name` |
+
+## Development vs. Production
+
+### Development Setup
+
+For development, you can use Plunk's test mode:
+
+```bash
+# .env.development
+PLUNK_API_KEY=sk_your_test_api_key
+DEFAULT_FROM_EMAIL=dev@plunk.dev
+DEFAULT_FROM_NAME=ShipFree Dev
+```
+
+### Production Setup
+
+For production, verify your domain:
+
+```bash
+# .env.production
+PLUNK_API_KEY=sk_your_production_api_key
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+## Plunk Dashboard
+
+The Plunk dashboard provides:
+
+### Email Activity
+
+- View all sent emails
+- See delivery status
+- Check open rates (if tracking enabled)
+- Monitor failures
+
+### Templates
+
+While ShipFree uses React Email for templates, you can also:
+
+1. Create templates in Plunk dashboard
+2. Use template IDs in your code
+3. Manage content without code changes
+
+### Analytics
+
+- Track email sends
+- Monitor delivery rates  
+- View engagement metrics
+
+## Limitations
+
+<Warning>
+  Plunk has some limitations compared to other providers:
+
+  - **No native batch sending** - Sequential processing only
+  - **No attachment support** - File attachments not supported
+  - **Limited header customization** - Some advanced headers may not work
+  - **Newer platform** - Smaller ecosystem than established providers
+</Warning>
+
+If you need these features, consider using Resend, Postmark, or Nodemailer instead.
+
+## Pricing
+
+Plunk offers competitive pricing:
+
+- **Free Tier**: 3,000 emails/month
+- **Starter**: $29/month for 100,000 emails
+- **Growth**: Custom pricing for higher volumes
+
+[View current pricing →](https://useplunk.com/pricing)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: 'Plunk not configured'">
+    The `PLUNK_API_KEY` is missing or invalid.
+    
+    **Solution:**
+    1. Verify `PLUNK_API_KEY` is set in `.env`
+    2. Check the API key is correct (starts with `sk_`)
+    3. Restart your application
+    4. Verify the API key in Plunk dashboard → Settings → API
+  </Accordion>
+
+  <Accordion title="Error: 'Invalid from address'">
+    You're sending from an unverified domain.
+    
+    **Solution:**
+    1. Go to Plunk → Settings → Domain
+    2. Verify your domain with DNS records
+    3. Update `DEFAULT_FROM_EMAIL` to use verified domain
+    4. For testing, use Plunk's default domain
+  </Accordion>
+
+  <Accordion title="Emails not being delivered">
+    Check these issues:
+    
+    1. **Domain verification**: Ensure DNS records are correct
+    2. **API key**: Verify it's a valid production key
+    3. **Rate limits**: Check you haven't exceeded quota
+    4. **Spam folder**: Ask recipients to check spam
+    5. **Dashboard logs**: Check Plunk dashboard for errors
+  </Accordion>
+
+  <Accordion title="Batch sending is slow">
+    This is expected behavior with Plunk.
+    
+    **Explanation:**
+    Plunk doesn't support native batch sending, so emails are sent sequentially. Each email is a separate API call.
+    
+    **Solutions:**
+    1. Switch to Resend or Postmark for native batch support
+    2. Reduce batch size
+    3. Use background jobs for large sends
+  </Accordion>
+
+  <Accordion title="Can't attach files">
+    Plunk does not support file attachments.
+    
+    **Workaround:**
+    1. Upload files to your server or cloud storage
+    2. Include download links in email HTML
+    3. Or switch to a provider that supports attachments (Resend, Postmark, Nodemailer)
+  </Accordion>
+</AccordionGroup>
+
+## Code Reference
+
+The Plunk provider implementation:
+
+```
+src/lib/messaging/email/providers/plunk.ts
+```
+
+Key functions:
+- `createPlunkProvider()` - Initialize provider (line 70)
+- `send()` - Send email (line 42)
+
+## When to Use Plunk
+
+Plunk is ideal for:
+
+<Check>
+  **Simple transactional emails** - Authentication, notifications, alerts
+</Check>
+
+<Check>
+  **Small to medium volume** - Under 100,000 emails/month
+</Check>
+
+<Check>
+  **HTML-only emails** - No need for attachments
+</Check>
+
+<Check>
+  **Developer-friendly setup** - Quick configuration, modern API
+</Check>
+
+Consider alternatives if you need:
+
+<Warning>
+  - High-volume batch sending (use Resend/Postmark)
+  - File attachments (use Resend/Postmark/Nodemailer)
+  - Advanced email headers (use Postmark/Nodemailer)
+  - Maximum deliverability (use Postmark)
+</Warning>
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Plunk Documentation" icon="book" href="https://docs.useplunk.com">
+    Official Plunk documentation
+  </Card>
+  <Card title="Plunk Dashboard" icon="chart-line" href="https://app.useplunk.com">
+    Manage emails and settings
+  </Card>
+  <Card title="Plunk GitHub" icon="github" href="https://github.com/useplunk/plunk">
+    View source code and contribute
+  </Card>
+  <Card title="API Reference" icon="code" href="https://docs.useplunk.com/api-reference">
+    Complete API documentation
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<Steps>
+  <Step title="Verify your domain">
+    Set up DNS records to send from your own domain
+  </Step>
+  <Step title="Test email templates">
+    Send test emails with your React Email templates
+  </Step>
+  <Step title="Monitor delivery">
+    Check the Plunk dashboard for email analytics
+  </Step>
+</Steps>

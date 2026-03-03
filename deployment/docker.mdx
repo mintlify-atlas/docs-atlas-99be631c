@@ -1,0 +1,457 @@
+---
+title: Docker Deployment
+description: Deploy ShipFree using Docker containers for development, staging, and production
+---
+
+ShipFree includes production-ready Docker configurations for containerized deployments. All Dockerfiles use **Bun** as the runtime for optimal performance.
+
+## Architecture
+
+ShipFree uses a **multi-stage build pattern** optimized for Next.js applications:
+
+1. **Base Stage**: Sets up Bun runtime and creates non-root user for security
+2. **Dependencies Stage**: Installs project dependencies using Bun
+3. **Builder Stage**: Compiles and builds the Next.js application
+4. **Runner Stage**: Creates minimal production image with only runtime files
+
+### Benefits of Multi-Stage Builds
+
+- **Smaller Image Size**: Final image contains only runtime dependencies
+- **Better Security**: Build tools and dev dependencies are excluded
+- **Faster Deployments**: Smaller images transfer and start faster
+- **Layer Caching**: Optimized for Docker's build cache
+
+## Quick Start
+
+### General Purpose Dockerfile
+
+The main Dockerfile is suitable for most use cases:
+
+```bash
+# Build the image
+docker build -f docker/Dockerfile -t shipfree:latest .
+
+# Run the container
+docker run -p 3000:3000 shipfree:latest
+
+# Access at http://localhost:3000
+```
+
+## Dockerfile Configuration
+
+Here's the main Dockerfile from `docker/Dockerfile`:
+
+```dockerfile docker/Dockerfile
+# syntax=docker.io/docker/dockerfile:1
+
+# Use Bun's official image
+FROM oven/bun:1 AS base
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs && \
+    chown -R nextjs:nodejs /app
+
+FROM base AS deps
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile && \
+    chown -R nextjs:nodejs /app
+
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --chown=nextjs:nodejs . .
+
+RUN bun run build && \
+    chown -R nextjs:nodejs /app
+
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME="0.0.0.0"
+
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+CMD ["bun", "./server.js"]
+```
+
+## Environment-Specific Deployments
+
+ShipFree provides separate Docker configurations for different environments:
+
+### Development Environment
+
+```bash
+# Build development image
+docker-compose -f docker/development/compose.yaml build
+
+# Start development container
+docker-compose -f docker/development/compose.yaml up
+
+# Access at http://localhost:3001
+```
+
+**Development Dockerfile** (`docker/development/Dockerfile`):
+- Copies `.env.development.sample` to `.env.production`
+- Exposed on port 3001
+- Optimized for development workflows
+
+### Staging Environment
+
+```bash
+# Build staging image
+docker-compose -f docker/staging/compose.yaml build
+
+# Start staging container
+docker-compose -f docker/staging/compose.yaml up
+
+# Access at http://localhost:3002
+```
+
+**Staging Dockerfile** (`docker/staging/Dockerfile`):
+- Copies `.env.staging.sample` to `.env.production`
+- Exposed on port 3002
+- Production-like environment for testing
+
+### Production Environment
+
+```bash
+# Build production image
+docker-compose -f docker/production/compose.yaml build
+
+# Start production container
+docker-compose -f docker/production/compose.yaml up
+
+# Access at http://localhost:3003
+```
+
+**Production Dockerfile** (`docker/production/Dockerfile`):
+- Copies `.env.production.sample` to `.env.production`
+- Exposed on port 3003
+- Full production optimizations
+
+## Docker Compose Configuration
+
+Example production `compose.yaml`:
+
+```yaml docker/production/compose.yaml
+services:
+  shipfree-production:
+    build:
+      context: ../../
+      dockerfile: docker/production/Dockerfile
+    image: shipfree-production
+    ports:
+      - "3003:3000"
+```
+
+### Port Mapping
+
+Default port mappings:
+
+| Environment | Host Port | Container Port |
+|-------------|-----------|----------------|
+| Development | 3001      | 3000           |
+| Staging     | 3002      | 3000           |
+| Production  | 3003      | 3000           |
+
+Customize ports by editing the respective `compose.yaml` files.
+
+## Environment Variables
+
+### Using .env Files
+
+Each environment expects a `.env.*.sample` file:
+
+```bash
+# Development
+.env.development.sample
+
+# Staging
+.env.staging.sample
+
+# Production
+.env.production.sample
+```
+
+These files are copied to `.env.production` during the Docker build process.
+
+### Runtime Environment Variables
+
+For production, pass environment variables at runtime:
+
+```bash
+# Using docker run
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgres://user:password@host:5432/db" \
+  -e BETTER_AUTH_SECRET="your-secret" \
+  -e NEXT_PUBLIC_APP_URL="https://yourdomain.com" \
+  shipfree:latest
+```
+
+### Using .env File with Docker Compose
+
+Create a `.env` file and reference it in `compose.yaml`:
+
+```yaml
+services:
+  shipfree-production:
+    build:
+      context: ../../
+      dockerfile: docker/production/Dockerfile
+    image: shipfree-production
+    ports:
+      - "3003:3000"
+    env_file:
+      - .env.production
+```
+
+## Production Deployment
+
+### Build Optimized Image
+
+```bash
+# Build with no cache for clean production build
+docker build --no-cache -f docker/production/Dockerfile -t shipfree:prod .
+
+# Or using docker-compose
+docker-compose -f docker/production/compose.yaml build --no-cache
+```
+
+### Run in Production
+
+```bash
+# Run in detached mode
+docker run -d \
+  --name shipfree-app \
+  -p 80:3000 \
+  --restart unless-stopped \
+  -e DATABASE_URL="$DATABASE_URL" \
+  -e BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+  -e NEXT_PUBLIC_APP_URL="https://yourdomain.com" \
+  shipfree:prod
+```
+
+### Using Docker Compose for Production
+
+```bash
+# Start in detached mode
+docker-compose -f docker/production/compose.yaml up -d
+
+# View logs
+docker-compose -f docker/production/compose.yaml logs -f
+
+# Stop containers
+docker-compose -f docker/production/compose.yaml down
+```
+
+## Next.js Standalone Output
+
+ShipFree is configured for standalone output mode, which:
+
+- Creates a minimal `.next/standalone` directory
+- Includes only required files and dependencies
+- Significantly reduces Docker image size
+- Improves container startup time
+
+**Note:** The `output: 'standalone'` option is commented out in `next.config.ts`. Uncomment it for production deployments:
+
+```ts next.config.ts
+const nextConfig: NextConfig = {
+  // Enable standalone output for Docker optimization
+  output: 'standalone',
+  // ... other config
+}
+```
+
+## Security Best Practices
+
+### Non-Root User
+
+All Dockerfiles run the application as a non-root user (`nextjs`):
+
+```dockerfile
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+# Run as nextjs user
+USER nextjs
+```
+
+### Minimal Permissions
+
+Files are copied with proper ownership:
+
+```dockerfile
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+```
+
+### No Build Tools in Production
+
+The final image excludes build dependencies for a smaller attack surface.
+
+## Troubleshooting
+
+### Build Fails with "Lockfile not found"
+
+**Solution:** Ensure `bun.lock` exists in your project root:
+
+```bash
+bun install  # Generate bun.lock
+```
+
+### Container Exits Immediately
+
+**Check logs:**
+
+```bash
+docker logs <container-id>
+```
+
+**Common causes:**
+- Missing environment variables
+- Database connection issues
+- Port conflicts
+
+### Permission Denied Errors
+
+**Rebuild with no cache:**
+
+```bash
+docker build --no-cache -f docker/Dockerfile -t shipfree:latest .
+```
+
+### Database Connection Issues
+
+**Verify DATABASE_URL:**
+
+```bash
+# Check environment variables
+docker exec <container-id> env | grep DATABASE
+```
+
+**For local PostgreSQL:**
+
+Use `host.docker.internal` instead of `localhost`:
+
+```bash
+DATABASE_URL=postgres://user:password@host.docker.internal:5432/db
+```
+
+## Advanced Usage
+
+### Multi-Container Setup with PostgreSQL
+
+Create a complete stack with database:
+
+```yaml compose.yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shipfree
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: shipfree
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/production/Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://shipfree:password@postgres:5432/shipfree
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+```
+
+### Health Checks
+
+Add health checks to your containers:
+
+```yaml
+services:
+  shipfree-production:
+    # ... other config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+### Custom Build Arguments
+
+Pass build-time variables:
+
+```dockerfile
+ARG NODE_ENV=production
+ENV NODE_ENV=$NODE_ENV
+```
+
+```bash
+docker build --build-arg NODE_ENV=production -t shipfree:prod .
+```
+
+## Container Registry
+
+### Push to Docker Hub
+
+```bash
+# Tag image
+docker tag shipfree:latest yourusername/shipfree:latest
+
+# Login to Docker Hub
+docker login
+
+# Push image
+docker push yourusername/shipfree:latest
+```
+
+### Push to GitHub Container Registry
+
+```bash
+# Tag image
+docker tag shipfree:latest ghcr.io/yourusername/shipfree:latest
+
+# Login to GitHub Container Registry
+echo $GITHUB_TOKEN | docker login ghcr.io -u yourusername --password-stdin
+
+# Push image
+docker push ghcr.io/yourusername/shipfree:latest
+```
+
+## Next Steps
+
+- [Run database migrations](/deployment/database-migrations)
+- [Deploy to Vercel](/deployment/vercel) (alternative to Docker)
+- [Configure environment variables](/configuration/environment-variables)
+
+## Resources
+
+- [Docker Multi-Stage Builds](https://docs.docker.com/build/building/multi-stage/)
+- [Next.js Docker Deployment](https://nextjs.org/docs/deployment#docker-image)
+- [Bun Documentation](https://bun.sh/docs)
+- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)

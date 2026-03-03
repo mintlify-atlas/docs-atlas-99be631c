@@ -1,0 +1,690 @@
+---
+title: Database Queries
+description: Common query patterns and examples using Drizzle ORM in ShipFree
+---
+
+This guide provides practical examples of database queries using Drizzle ORM for common use cases in ShipFree.
+
+## Setup
+
+All queries use the database client from `src/database/index.ts`:
+
+```typescript
+import { db } from '@/database'
+import { user, session, customer, subscription, payment } from '@/database/schema'
+import { eq, and, or, desc, gte, lte } from 'drizzle-orm'
+```
+
+## User Queries
+
+### Find User by Email
+
+```typescript
+const findUserByEmail = async (email: string) => {
+  const result = await db.query.user.findFirst({
+    where: eq(user.email, email)
+  })
+  
+  return result
+}
+```
+
+### Find User by ID with Relations
+
+```typescript
+const getUserWithRelations = async (userId: string) => {
+  const result = await db.query.user.findFirst({
+    where: eq(user.id, userId),
+    with: {
+      sessions: true,
+      accounts: true
+    }
+  })
+  
+  return result
+}
+```
+
+### Create New User
+
+```typescript
+const createUser = async (data: {
+  id: string
+  email: string
+  name: string
+}) => {
+  const [newUser] = await db.insert(user).values({
+    id: data.id,
+    email: data.email,
+    name: data.name,
+    emailVerified: false
+  }).returning()
+  
+  return newUser
+}
+```
+
+### Update User Profile
+
+```typescript
+const updateUserProfile = async (userId: string, data: {
+  name?: string
+  image?: string
+}) => {
+  const [updated] = await db
+    .update(user)
+    .set({
+      ...data,
+      updatedAt: new Date()
+    })
+    .where(eq(user.id, userId))
+    .returning()
+  
+  return updated
+}
+```
+
+## Session Queries
+
+### Find Active Session by Token
+
+```typescript
+const findActiveSession = async (token: string) => {
+  const now = new Date()
+  
+  const result = await db.query.session.findFirst({
+    where: and(
+      eq(session.token, token),
+      gte(session.expiresAt, now)
+    ),
+    with: {
+      user: true
+    }
+  })
+  
+  return result
+}
+```
+
+### Get All User Sessions
+
+```typescript
+const getUserSessions = async (userId: string) => {
+  const sessions = await db.query.session.findMany({
+    where: eq(session.userId, userId),
+    orderBy: desc(session.createdAt)
+  })
+  
+  return sessions
+}
+```
+
+### Delete Expired Sessions
+
+```typescript
+const deleteExpiredSessions = async () => {
+  const now = new Date()
+  
+  const deleted = await db
+    .delete(session)
+    .where(lte(session.expiresAt, now))
+    .returning()
+  
+  return deleted.length
+}
+```
+
+## Subscription Queries
+
+### Get User's Active Subscription
+
+```typescript
+const getActiveSubscription = async (userId: string) => {
+  const sub = await db.query.subscription.findFirst({
+    where: and(
+      eq(subscription.userId, userId),
+      eq(subscription.status, 'active')
+    ),
+    orderBy: desc(subscription.createdAt)
+  })
+  
+  return sub
+}
+```
+
+### Get Subscription with Customer Details
+
+```typescript
+const getSubscriptionDetails = async (subscriptionId: string) => {
+  const sub = await db.query.subscription.findFirst({
+    where: eq(subscription.id, subscriptionId),
+    with: {
+      user: true,
+      customer: true,
+      payments: {
+        orderBy: desc(payment.createdAt),
+        limit: 10
+      }
+    }
+  })
+  
+  return sub
+}
+```
+
+### Find Subscriptions by Provider
+
+```typescript
+const getSubscriptionsByProvider = async (
+  provider: 'stripe' | 'polar' | 'lemonsqueezy'
+) => {
+  const subscriptions = await db.query.subscription.findMany({
+    where: and(
+      eq(subscription.provider, provider),
+      eq(subscription.status, 'active')
+    ),
+    with: {
+      user: {
+        columns: {
+          email: true,
+          name: true
+        }
+      }
+    }
+  })
+  
+  return subscriptions
+}
+```
+
+### Update Subscription Status
+
+```typescript
+const updateSubscriptionStatus = async (
+  providerSubscriptionId: string,
+  newStatus: 'active' | 'canceled' | 'past_due'
+) => {
+  const [updated] = await db
+    .update(subscription)
+    .set({
+      status: newStatus,
+      ...(newStatus === 'canceled' && { canceledAt: new Date() }),
+      updatedAt: new Date()
+    })
+    .where(eq(subscription.providerSubscriptionId, providerSubscriptionId))
+    .returning()
+  
+  return updated
+}
+```
+
+### Find Subscriptions Ending Soon
+
+```typescript
+const getSubscriptionsEndingSoon = async (daysFromNow: number = 7) => {
+  const futureDate = new Date()
+  futureDate.setDate(futureDate.getDate() + daysFromNow)
+  
+  const subscriptions = await db.query.subscription.findMany({
+    where: and(
+      eq(subscription.status, 'active'),
+      lte(subscription.currentPeriodEnd, futureDate),
+      gte(subscription.currentPeriodEnd, new Date())
+    ),
+    with: {
+      user: {
+        columns: {
+          email: true,
+          name: true
+        }
+      }
+    }
+  })
+  
+  return subscriptions
+}
+```
+
+## Payment Queries
+
+### Get User's Payment History
+
+```typescript
+const getUserPayments = async (userId: string, limit: number = 50) => {
+  const payments = await db.query.payment.findMany({
+    where: eq(payment.userId, userId),
+    orderBy: desc(payment.createdAt),
+    limit,
+    with: {
+      subscription: {
+        columns: {
+          plan: true,
+          interval: true
+        }
+      }
+    }
+  })
+  
+  return payments
+}
+```
+
+### Get Successful Payments
+
+```typescript
+const getSuccessfulPayments = async (userId: string) => {
+  const payments = await db.query.payment.findMany({
+    where: and(
+      eq(payment.userId, userId),
+      eq(payment.status, 'succeeded')
+    ),
+    orderBy: desc(payment.createdAt)
+  })
+  
+  return payments
+}
+```
+
+### Calculate Total Revenue by Plan
+
+```typescript
+const getRevenueByPlan = async () => {
+  const payments = await db
+    .select({
+      plan: subscription.plan,
+      totalRevenue: sql<number>`sum(cast(${payment.amount} as numeric))`,
+      count: sql<number>`count(*)::int`
+    })
+    .from(payment)
+    .innerJoin(subscription, eq(payment.subscriptionId, subscription.id))
+    .where(eq(payment.status, 'succeeded'))
+    .groupBy(subscription.plan)
+  
+  return payments
+}
+```
+
+### Create Payment Record
+
+```typescript
+const createPayment = async (data: {
+  userId: string
+  customerId: string
+  subscriptionId?: string
+  provider: 'stripe' | 'polar' | 'lemonsqueezy'
+  providerPaymentId: string
+  type: 'subscription' | 'one_time' | 'refund'
+  status: 'succeeded' | 'pending' | 'failed'
+  amount: number
+  currency: string
+  description?: string
+}) => {
+  const [newPayment] = await db.insert(payment).values({
+    id: crypto.randomUUID(),
+    ...data,
+    amount: data.amount.toString()
+  }).returning()
+  
+  return newPayment
+}
+```
+
+## Customer Queries
+
+### Find or Create Customer
+
+```typescript
+const findOrCreateCustomer = async (data: {
+  userId: string
+  provider: 'stripe' | 'polar' | 'lemonsqueezy'
+  providerCustomerId: string
+  email?: string
+}) => {
+  // Try to find existing
+  const existing = await db.query.customer.findFirst({
+    where: and(
+      eq(customer.userId, data.userId),
+      eq(customer.provider, data.provider)
+    )
+  })
+  
+  if (existing) {
+    return { customer: existing, created: false }
+  }
+  
+  // Create new
+  const [newCustomer] = await db.insert(customer).values({
+    id: crypto.randomUUID(),
+    ...data
+  }).returning()
+  
+  return { customer: newCustomer, created: true }
+}
+```
+
+### Get Customer with All Relations
+
+```typescript
+const getCustomerComplete = async (customerId: string) => {
+  const result = await db.query.customer.findFirst({
+    where: eq(customer.id, customerId),
+    with: {
+      user: true,
+      subscriptions: {
+        orderBy: desc(subscription.createdAt)
+      },
+      payments: {
+        orderBy: desc(payment.createdAt),
+        limit: 20
+      }
+    }
+  })
+  
+  return result
+}
+```
+
+## Complex Queries
+
+### Get User's Complete Billing Data
+
+```typescript
+const getUserBillingData = async (userId: string) => {
+  const userData = await db.query.user.findFirst({
+    where: eq(user.id, userId),
+    columns: {
+      id: true,
+      email: true,
+      name: true
+    }
+  })
+  
+  const customerData = await db.query.customer.findFirst({
+    where: eq(customer.userId, userId)
+  })
+  
+  const activeSubscription = await db.query.subscription.findFirst({
+    where: and(
+      eq(subscription.userId, userId),
+      eq(subscription.status, 'active')
+    ),
+    orderBy: desc(subscription.createdAt)
+  })
+  
+  const recentPayments = await db.query.payment.findMany({
+    where: eq(payment.userId, userId),
+    orderBy: desc(payment.createdAt),
+    limit: 10
+  })
+  
+  return {
+    user: userData,
+    customer: customerData,
+    subscription: activeSubscription,
+    payments: recentPayments
+  }
+}
+```
+
+### Get Dashboard Analytics
+
+```typescript
+import { sql } from 'drizzle-orm'
+
+const getDashboardStats = async () => {
+  const totalUsers = await db.select({ count: sql<number>`count(*)::int` }).from(user)
+  
+  const activeSubscriptions = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(subscription)
+    .where(eq(subscription.status, 'active'))
+  
+  const monthlyRevenue = await db
+    .select({ total: sql<number>`sum(cast(${payment.amount} as numeric))` })
+    .from(payment)
+    .where(
+      and(
+        eq(payment.status, 'succeeded'),
+        gte(payment.createdAt, sql`now() - interval '30 days'`)
+      )
+    )
+  
+  const planDistribution = await db
+    .select({
+      plan: subscription.plan,
+      count: sql<number>`count(*)::int`
+    })
+    .from(subscription)
+    .where(eq(subscription.status, 'active'))
+    .groupBy(subscription.plan)
+  
+  return {
+    totalUsers: totalUsers[0].count,
+    activeSubscriptions: activeSubscriptions[0].count,
+    monthlyRevenue: monthlyRevenue[0].total || 0,
+    planDistribution
+  }
+}
+```
+
+### Find Users by Subscription Plan
+
+```typescript
+const getUsersByPlan = async (planName: 'free' | 'starter' | 'pro' | 'enterprise') => {
+  const users = await db
+    .select({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      plan: subscription.plan,
+      status: subscription.status,
+      subscriptionId: subscription.id
+    })
+    .from(user)
+    .innerJoin(subscription, eq(user.id, subscription.userId))
+    .where(
+      and(
+        eq(subscription.plan, planName),
+        eq(subscription.status, 'active')
+      )
+    )
+  
+  return users
+}
+```
+
+## Transaction Examples
+
+### Create User with Customer
+
+```typescript
+const createUserWithCustomer = async (data: {
+  email: string
+  name: string
+  provider: 'stripe' | 'polar' | 'lemonsqueezy'
+  providerCustomerId: string
+}) => {
+  return await db.transaction(async (tx) => {
+    // Create user
+    const [newUser] = await tx.insert(user).values({
+      id: crypto.randomUUID(),
+      email: data.email,
+      name: data.name,
+      emailVerified: false
+    }).returning()
+    
+    // Create customer
+    const [newCustomer] = await tx.insert(customer).values({
+      id: crypto.randomUUID(),
+      userId: newUser.id,
+      provider: data.provider,
+      providerCustomerId: data.providerCustomerId,
+      email: data.email
+    }).returning()
+    
+    return { user: newUser, customer: newCustomer }
+  })
+}
+```
+
+### Cancel Subscription with Refund
+
+```typescript
+const cancelSubscriptionWithRefund = async (
+  subscriptionId: string,
+  refundAmount: number
+) => {
+  return await db.transaction(async (tx) => {
+    // Update subscription
+    const [canceledSub] = await tx
+      .update(subscription)
+      .set({
+        status: 'canceled',
+        canceledAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(subscription.id, subscriptionId))
+      .returning()
+    
+    // Create refund payment record
+    const [refund] = await tx.insert(payment).values({
+      id: crypto.randomUUID(),
+      userId: canceledSub.userId,
+      subscriptionId: subscriptionId,
+      provider: canceledSub.provider,
+      providerPaymentId: `refund_${crypto.randomUUID()}`,
+      type: 'refund',
+      status: 'succeeded',
+      amount: refundAmount.toString(),
+      currency: canceledSub.currency || 'usd',
+      description: 'Subscription cancellation refund'
+    }).returning()
+    
+    return { subscription: canceledSub, refund }
+  })
+}
+```
+
+## Query Builder Patterns
+
+### Dynamic Filters
+
+```typescript
+const searchSubscriptions = async (filters: {
+  userId?: string
+  status?: string
+  plan?: string
+  provider?: string
+}) => {
+  const conditions = []
+  
+  if (filters.userId) {
+    conditions.push(eq(subscription.userId, filters.userId))
+  }
+  if (filters.status) {
+    conditions.push(eq(subscription.status, filters.status))
+  }
+  if (filters.plan) {
+    conditions.push(eq(subscription.plan, filters.plan))
+  }
+  if (filters.provider) {
+    conditions.push(eq(subscription.provider, filters.provider))
+  }
+  
+  const results = await db.query.subscription.findMany({
+    where: conditions.length > 0 ? and(...conditions) : undefined,
+    orderBy: desc(subscription.createdAt)
+  })
+  
+  return results
+}
+```
+
+### Pagination
+
+```typescript
+const getPaginatedPayments = async ({
+  userId,
+  page = 1,
+  pageSize = 20
+}: {
+  userId: string
+  page?: number
+  pageSize?: number
+}) => {
+  const offset = (page - 1) * pageSize
+  
+  const [payments, totalCount] = await Promise.all([
+    db.query.payment.findMany({
+      where: eq(payment.userId, userId),
+      orderBy: desc(payment.createdAt),
+      limit: pageSize,
+      offset
+    }),
+    db.select({ count: sql<number>`count(*)::int` })
+      .from(payment)
+      .where(eq(payment.userId, userId))
+  ])
+  
+  return {
+    data: payments,
+    pagination: {
+      page,
+      pageSize,
+      total: totalCount[0].count,
+      totalPages: Math.ceil(totalCount[0].count / pageSize)
+    }
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use transactions for multi-table operations">
+    When creating or updating multiple related records, wrap operations in a transaction to ensure data consistency.
+    
+    ```typescript
+    await db.transaction(async (tx) => {
+      // Multiple operations here
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Use indexes for frequent queries">
+    The schema includes indexes on commonly queried fields like `userId`, `providerCustomerId`, and `status`. Always filter by indexed columns when possible.
+  </Accordion>
+  
+  <Accordion title="Leverage query relations">
+    Use Drizzle's `with` clause to fetch related data in a single query instead of making multiple queries.
+    
+    ```typescript
+    const user = await db.query.user.findFirst({
+      where: eq(user.id, userId),
+      with: {
+        sessions: true,
+        accounts: true
+      }
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle null values properly">
+    Many fields are nullable. Always check for null before using values.
+    
+    ```typescript
+    const email = customer.email || user.email
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Schema" icon="database" href="/api/database/schema">
+    View complete schema reference
+  </Card>
+  <Card title="Drizzle ORM Docs" icon="book" href="https://orm.drizzle.team">
+    Official Drizzle documentation
+  </Card>
+</CardGroup>

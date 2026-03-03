@@ -1,0 +1,458 @@
+---
+title: Branding
+description: Customize your ShipFree application's brand identity, colors, and theme
+---
+
+ShipFree provides a centralized branding configuration system in `src/config/branding.ts` that allows you to customize your application's visual identity.
+
+## Brand Configuration
+
+The brand configuration controls various aspects of your application's appearance and metadata.
+
+### Configuration Interface
+
+```typescript
+export interface BrandConfig {
+  name: string
+  logoUrl?: string
+  faviconUrl?: string
+  customCssUrl?: string
+  supportEmail?: string
+  documentationUrl?: string
+  termsUrl?: string
+  privacyUrl?: string
+  theme?: ThemeColors
+}
+
+export interface ThemeColors {
+  primaryColor?: string
+  primaryHoverColor?: string
+  accentColor?: string
+  accentHoverColor?: string
+  backgroundColor?: string
+}
+```
+
+### Default Configuration
+
+The default brand configuration is defined in `src/config/branding.ts`:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  name: 'ShipFree',
+  logoUrl: undefined,
+  faviconUrl: '/favicon/favicon.ico',
+  customCssUrl: undefined,
+  supportEmail: 'hi@revoks.dev',
+  documentationUrl: undefined,
+  termsUrl: undefined,
+  privacyUrl: undefined,
+  theme: {
+    primaryColor: '#701ffc',
+    primaryHoverColor: '#802fff',
+    accentColor: '#9d54ff',
+    accentHoverColor: '#a66fff',
+    backgroundColor: '#0c0c0c',
+  },
+}
+```
+
+## Customizing Your Brand
+
+### 1. Update Brand Name
+
+Change the application name:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  name: 'Your App Name',
+  // ...
+}
+```
+
+This name is used in:
+- Email templates
+- SEO metadata
+- Application manifest
+- Email subjects
+
+### 2. Add Your Logo
+
+Place your logo in the `public/` directory and update the configuration:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  logoUrl: '/logo.svg',
+  // or use an absolute URL
+  logoUrl: 'https://cdn.yourdomain.com/logo.svg',
+  // ...
+}
+```
+
+Recommended formats:
+- **SVG**: Scalable, small file size
+- **PNG**: With transparent background
+- **WebP**: Modern, efficient format
+
+### 3. Customize Favicon
+
+Update the favicon path:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  faviconUrl: '/favicon.ico',
+  // ...
+}
+```
+
+For best browser support, provide multiple sizes:
+
+```
+public/
+├── favicon.ico (16x16, 32x32, 48x48)
+├── favicon.svg (scalable)
+├── apple-touch-icon.png (180x180)
+└── favicon-196x196.png
+```
+
+Then update `src/app/layout.tsx`:
+
+```typescript
+export const metadata: Metadata = {
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.svg',
+    apple: '/apple-touch-icon.png',
+  },
+}
+```
+
+### 4. Configure Support Links
+
+Add links to your support resources:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  supportEmail: 'support@yourdomain.com',
+  documentationUrl: 'https://docs.yourdomain.com',
+  termsUrl: 'https://yourdomain.com/terms',
+  privacyUrl: 'https://yourdomain.com/privacy',
+  // ...
+}
+```
+
+These URLs are used in:
+- Email footers
+- Navigation menus
+- Legal pages
+- Error pages
+
+## Theme Configuration
+
+### Color Customization
+
+Update the theme colors to match your brand:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  theme: {
+    primaryColor: '#3b82f6',      // Blue-500
+    primaryHoverColor: '#2563eb',  // Blue-600
+    accentColor: '#8b5cf6',        // Violet-500
+    accentHoverColor: '#7c3aed',   // Violet-600
+    backgroundColor: '#0f172a',    // Slate-900
+  },
+}
+```
+
+### Using Theme Colors
+
+ShipFree uses TailwindCSS v4 with CSS custom properties. The theme colors from `branding.ts` can be integrated with the global stylesheet.
+
+#### Global CSS Variables
+
+The main theme is defined in `src/app/_styles/globals.css`:
+
+```css
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  /* ... more variables */
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --accent: oklch(0.269 0 0);
+  /* ... dark mode colors */
+}
+```
+
+#### Converting Hex to OKLCH
+
+ShipFree uses OKLCH color space for better color consistency. Convert your brand colors:
+
+1. Use an online converter: https://oklch.com/
+2. Input your hex color (e.g., `#701ffc`)
+3. Copy the OKLCH value
+4. Update `globals.css`:
+
+```css
+:root {
+  --primary: oklch(0.488 0.243 283.75); /* #701ffc */
+  --accent: oklch(0.627 0.265 283.75);  /* #9d54ff */
+}
+```
+
+### Custom CSS
+
+For advanced customization, you can inject custom CSS:
+
+```typescript
+const defaultConfig: BrandConfig = {
+  customCssUrl: '/custom-theme.css',
+  // ...
+}
+```
+
+Create `public/custom-theme.css`:
+
+```css
+:root {
+  /* Override theme variables */
+  --primary: #your-color;
+  --radius: 1rem;
+  
+  /* Add custom properties */
+  --brand-gradient: linear-gradient(to right, #start, #end);
+}
+
+/* Custom styles */
+.hero-section {
+  background: var(--brand-gradient);
+}
+```
+
+Then load it in your root layout or specific pages.
+
+## Using Brand Config in Components
+
+### Server Components
+
+Use `getBrandConfig()` in Server Components:
+
+```typescript
+import { getBrandConfig } from '@/config/branding'
+
+export default function Page() {
+  const brand = getBrandConfig()
+  
+  return (
+    <div>
+      <h1>{brand.name}</h1>
+      {brand.logoUrl && (
+        <img src={brand.logoUrl} alt={brand.name} />
+      )}
+      <a href={`mailto:${brand.supportEmail}`}>
+        Contact Support
+      </a>
+    </div>
+  )
+}
+```
+
+### Client Components
+
+Use the `useBrandConfig()` hook in Client Components:
+
+```typescript
+'use client'
+
+import { useBrandConfig } from '@/config/branding'
+
+export function Logo() {
+  const brand = useBrandConfig()
+  
+  return (
+    <div>
+      {brand.logoUrl ? (
+        <img src={brand.logoUrl} alt={brand.name} />
+      ) : (
+        <span>{brand.name}</span>
+      )}
+    </div>
+  )
+}
+```
+
+### Email Templates
+
+Brand configuration is used in email templates:
+
+```typescript
+import { getBrandConfig } from '@/config/branding'
+
+export function WelcomeEmail() {
+  const brand = getBrandConfig()
+  
+  return (
+    <Html>
+      <Head />
+      <Preview>Welcome to {brand.name}!</Preview>
+      <Body>
+        <Container>
+          <Text>Welcome to {brand.name}</Text>
+          {/* Email content */}
+        </Container>
+        <Text>
+          Questions? Email us at {brand.supportEmail}
+        </Text>
+      </Body>
+    </Html>
+  )
+}
+```
+
+## Where Brand Config is Used
+
+The brand configuration is automatically integrated throughout ShipFree:
+
+### 1. Email Templates
+
+**Location:** `src/components/emails/`
+
+- Welcome emails
+- Password reset emails
+- OTP verification emails
+- Email footers and layouts
+
+```typescript
+// src/components/emails/auth/welcome-email.tsx
+const brand = getBrandConfig()
+// Uses: brand.name, brand.supportEmail
+```
+
+### 2. SEO & Metadata
+
+**Location:** `src/lib/seo.ts`
+
+```typescript
+// src/lib/seo.ts
+import { getBrandConfig } from '@/config/branding'
+
+const brandConfig = getBrandConfig()
+// Uses brand.name in metadata
+```
+
+### 3. Application Manifest
+
+**Location:** `src/app/manifest.ts`
+
+```typescript
+import { getBrandConfig } from '@/config/branding'
+
+export default function manifest(): MetadataRoute.Manifest {
+  const brand = getBrandConfig()
+  
+  return {
+    name: brand.name,
+    short_name: brand.name,
+    // ...
+  }
+}
+```
+
+### 4. Error Pages
+
+**Location:** `src/app/not-found.tsx`
+
+```typescript
+const brandConfig = useBrandConfig()
+// Uses brand name and links
+```
+
+### 5. Email Subjects
+
+**Location:** `src/components/emails/subjects.ts`
+
+```typescript
+import { getBrandConfig } from '@/config/branding'
+
+export const emailSubjects = {
+  welcome: () => `Welcome to ${getBrandConfig().name}!`,
+  resetPassword: () => `Reset your ${getBrandConfig().name} password`,
+  // ...
+}
+```
+
+## Best Practices
+
+### 1. Consistent Branding
+
+- Use the same colors across all components
+- Maintain consistent logo sizing and spacing
+- Keep email branding aligned with web branding
+
+### 2. Accessibility
+
+- Ensure color contrast meets WCAG AA standards (4.5:1 for text)
+- Provide alt text for logos
+- Test theme in both light and dark modes
+
+### 3. Performance
+
+- Optimize logo files (compress images, use SVG when possible)
+- Use WebP format with fallbacks
+- Load custom CSS asynchronously if large
+
+### 4. Brand Consistency
+
+- Keep `branding.ts` as the single source of truth
+- Don't hardcode brand values in components
+- Always use `getBrandConfig()` or `useBrandConfig()`
+
+## Example: Complete Rebrand
+
+Here's a complete example of rebranding ShipFree to "Acme SaaS":
+
+```typescript
+// src/config/branding.ts
+const defaultConfig: BrandConfig = {
+  name: 'Acme SaaS',
+  logoUrl: '/acme-logo.svg',
+  faviconUrl: '/acme-favicon.ico',
+  supportEmail: 'support@acme.com',
+  documentationUrl: 'https://docs.acme.com',
+  termsUrl: 'https://acme.com/terms',
+  privacyUrl: 'https://acme.com/privacy',
+  theme: {
+    primaryColor: '#FF6B35',      // Acme orange
+    primaryHoverColor: '#E85D2C',
+    accentColor: '#004E89',        // Acme blue
+    accentHoverColor: '#003D6B',
+    backgroundColor: '#1A1A2E',    // Dark navy
+  },
+}
+```
+
+```css
+/* src/app/_styles/globals.css */
+:root {
+  --primary: oklch(0.645 0.195 36.5);  /* #FF6B35 */
+  --accent: oklch(0.398 0.147 252.7);  /* #004E89 */
+  --background: oklch(0.15 0.02 252);  /* #1A1A2E */
+}
+```
+
+This will automatically update:
+- All email templates
+- SEO metadata
+- Application manifest  
+- Navigation and UI components
+- Error pages

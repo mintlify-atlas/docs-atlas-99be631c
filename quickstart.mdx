@@ -1,80 +1,228 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get ShipFree up and running in under 5 minutes with this quick start guide.
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
+Get your ShipFree application running locally in just a few steps. This guide will take you from zero to a working application.
 
-### Step 1: Set up your local environment
+<Info>
+  This quickstart assumes you have Bun and PostgreSQL already installed. If not, check out the [Installation guide](/installation) for detailed setup instructions.
+</Info>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Clone the repository">
+    Clone the ShipFree repository to your local machine:
 
-### Step 2: Deploy your changes
+    ```bash
+    git clone https://github.com/revokshq/shipfree.git
+    cd shipfree
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Install dependencies">
+    ShipFree uses Bun as its package manager. Install all dependencies with:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    bun install
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Tip>
+      Bun is significantly faster than npm or yarn. If you don't have it installed yet, visit [bun.sh](https://bun.sh) for installation instructions.
+    </Tip>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Set up environment variables">
+    Copy the example environment file and configure your settings:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash
+    cp .env.example .env
+    ```
+
+    Open `.env` and configure the required variables:
+
+    ```bash
+    # Database connection
+    DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+
+    # App URL
+    NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+    # Better-Auth secret (generate with: openssl rand -base64 32)
+    BETTER_AUTH_SECRET=your-secret-key-here
+    BETTER_AUTH_URL=http://localhost:3000
+
+    # Email provider (set to 'log' for development)
+    EMAIL_PROVIDER=log
+
+    # Environment
+    NEXT_PUBLIC_ENV=development
+    ```
+
+    <Warning>
+      Make sure to generate a secure `BETTER_AUTH_SECRET` using `openssl rand -base64 32`. Never use the example value in production.
+    </Warning>
+  </Step>
+
+  <Step title="Set up the database">
+    Create a PostgreSQL database for your application:
+
+    ```bash
+    # Using psql
+    createdb shipfree
+
+    # Or using PostgreSQL CLI
+    psql -U postgres -c "CREATE DATABASE shipfree;"
+    ```
+
+    Make sure your `DATABASE_URL` in `.env` matches your database credentials.
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply the database schema using Drizzle migrations:
+
+    ```bash
+    bun run migrate:local
+    ```
+
+    This command runs the migration script at `scripts/migrate.ts` and sets up all required tables.
+  </Step>
+
+  <Step title="Start the development server">
+    Launch the Next.js development server:
+
+    ```bash
+    bun dev
+    ```
+
+    Your application will be available at [http://localhost:3000](http://localhost:3000)
+
+    <Tip>
+      The development server supports hot reloading, so changes you make will be reflected instantly.
+    </Tip>
+  </Step>
+</Steps>
+
+## Verify your setup
+
+Once the development server is running, you should be able to:
+
+1. Visit the homepage at `http://localhost:3000`
+2. Navigate to the sign-up page
+3. Create a test account
+4. Access the dashboard
+
+<Info>
+  With `EMAIL_PROVIDER=log`, authentication emails will be printed to your console instead of being sent. This is perfect for development.
+</Info>
+
+## Available commands
+
+Here are the key commands you'll use during development:
+
+<CodeGroup>
+```bash Development
+bun dev
+```
+
+```bash Build
+bun run build
+```
+
+```bash Production
+bun start
+```
+
+```bash Linting
+bun run lint
+```
+
+```bash Format
+bun run format
+```
+
+```bash Type check
+bun run typecheck
+```
+
+```bash Generate migration
+bun run generate-migration
+```
+
+```bash Run migrations (local)
+bun run migrate:local
+```
+
+```bash Run migrations (production)
+bun run migrate:prod
+```
+</CodeGroup>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that your application is running, here's what to do next:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Configure authentication" icon="lock" href="/authentication/setup">
+    Set up OAuth providers like Google, GitHub, and Microsoft
+  </Card>
+  
+  <Card title="Set up payments" icon="credit-card" href="/payments/setup">
+    Configure Stripe, Polar, or other payment providers
+  </Card>
+  
+  <Card title="Configure emails" icon="envelope" href="/email/setup">
+    Set up Resend, Postmark, or your preferred email service
+  </Card>
+  
+  <Card title="Customize branding" icon="palette" href="/customization/branding">
+    Update colors, logo, and brand settings
+  </Card>
+  
+  <Card title="Add translations" icon="globe" href="/i18n/adding-languages">
+    Add support for additional languages
+  </Card>
+  
+  <Card title="Deploy your app" icon="cloud-upload" href="/deployment/vercel">
+    Deploy to Vercel, Railway, or your preferred platform
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common issues
+
+<AccordionGroup>
+  <Accordion title="Database connection error">
+    If you see a database connection error, verify that:
+    - PostgreSQL is running
+    - Your `DATABASE_URL` is correct
+    - The database exists (`createdb shipfree`)
+    - Your PostgreSQL user has the correct permissions
+  </Accordion>
+
+  <Accordion title="Bun command not found">
+    Make sure Bun is installed and in your PATH:
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+    Then restart your terminal.
+  </Accordion>
+
+  <Accordion title="Port 3000 already in use">
+    If port 3000 is already in use, you can specify a different port:
+    ```bash
+    PORT=3001 bun dev
+    ```
+  </Accordion>
+
+  <Accordion title="Migration errors">
+    If migrations fail, try:
+    1. Checking your database connection
+    2. Ensuring the database is empty for a fresh install
+    3. Running `bun run generate-migration` to regenerate migrations
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  For more detailed troubleshooting, see the [Installation guide](/installation) or join our community for support.
+</Tip>

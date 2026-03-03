@@ -1,0 +1,473 @@
+---
+title: Lemon Squeezy Integration
+description: Set up and configure Lemon Squeezy payments in ShipFree
+---
+
+Lemon Squeezy is a payment platform designed for digital products and SaaS. Its standout feature is acting as a Merchant of Record (MoR), handling VAT and sales tax compliance globally.
+
+## Prerequisites
+
+- A Lemon Squeezy account ([sign up here](https://app.lemonsqueezy.com/register))
+- Your ShipFree application running locally or deployed
+- A verified store in Lemon Squeezy
+
+## What is Merchant of Record?
+
+As a Merchant of Record, Lemon Squeezy:
+- **Handles all tax compliance**: VAT, sales tax, GST worldwide
+- **Is the seller of record**: Your customers buy from Lemon Squeezy, not you
+- **Manages invoicing**: Generates proper tax invoices
+- **Handles refunds and chargebacks**: Takes on the liability
+
+This simplifies your business but means Lemon Squeezy takes a higher fee (5% + payment processing).
+
+## Setup Instructions
+
+### Step 1: Set Up Your Store
+
+1. Log in to [Lemon Squeezy](https://app.lemonsqueezy.com)
+2. Complete store verification (required for payouts)
+3. Set up your payout method
+4. Configure tax settings (automatically handled as MoR)
+
+### Step 2: Get Your API Key and Store ID
+
+1. Go to **Settings** → **API**
+2. Click **Create API Key**
+3. Copy your API key (starts with `eyJ0eXAiOi...`)
+4. Note your **Store ID** (found in Settings)
+
+### Step 3: Create Products and Variants
+
+Lemon Squeezy uses products and variants for pricing.
+
+1. Go to **Products** in your dashboard
+2. Click **Create Product**
+3. For each plan (Starter, Pro, Enterprise):
+   - Set product name and description
+   - Set product type to **Subscription**
+   - Add product image (optional)
+   - Click **Create Product**
+
+4. Create variants for each billing interval:
+   - Click **Add Variant**
+   - Set variant name (e.g., "Monthly")
+   - Set price (e.g., $9.90)
+   - Set billing interval: **Monthly** or **Yearly**
+   - Enable **Subscription**
+   - Save and copy the **Variant ID** (numeric ID)
+
+<Info>
+In Lemon Squeezy, you use **Variant IDs** (not Product IDs) when creating checkouts. Each variant represents a specific price point and billing interval.
+</Info>
+
+### Step 4: Configure Environment Variables
+
+Add these variables to your `.env` file:
+
+```bash
+# Payment Provider Selection
+PAYMENT_PROVIDER=lemonsqueezy
+
+# Lemon Squeezy API Key (server-side)
+LEMONSQUEEZY_API_KEY=eyJ0eXAiOiJKV1QiLCJhbGc...
+
+# Lemon Squeezy Store ID
+LEMONSQUEEZY_STORE_ID=12345
+
+# Lemon Squeezy Webhook Secret (from Step 5)
+LEMONSQUEEZY_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Lemon Squeezy Variant IDs (client-side, for display)
+# Note: In LS, we use variant IDs, not product IDs
+NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_STARTER_MONTHLY=123456
+NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_PRO_MONTHLY=123457
+NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_ENTERPRISE_MONTHLY=123458
+```
+
+<Warning>
+In ShipFree's config, these are named `PRODUCT_*` but actually contain Variant IDs for Lemon Squeezy. This maintains consistency across providers.
+</Warning>
+
+### Step 5: Set Up Webhooks
+
+Lemon Squeezy uses webhooks to notify your application about subscription events.
+
+#### For Local Development
+
+Use [ngrok](https://ngrok.com) to expose your local server:
+
+1. Install ngrok:
+   ```bash
+   # macOS
+   brew install ngrok/ngrok/ngrok
+   ```
+
+2. Start your development server:
+   ```bash
+   bun dev
+   ```
+
+3. In another terminal, start ngrok:
+   ```bash
+   ngrok http 3000
+   ```
+
+4. Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`)
+
+5. In Lemon Squeezy dashboard, go to **Settings** → **Webhooks**
+
+6. Click **Add Webhook**:
+   - URL: `https://abc123.ngrok.io/api/webhooks/payments`
+   - Signing Secret: Generate a random string (save this!)
+   - Events: Select all subscription and order events
+
+7. Add the signing secret to your `.env`:
+   ```bash
+   LEMONSQUEEZY_WEBHOOK_SECRET=your_generated_secret
+   ```
+
+#### For Production
+
+1. Go to **Settings** → **Webhooks**
+2. Click **Add Webhook**
+3. Set webhook URL: `https://yourdomain.com/api/webhooks/payments`
+4. Generate and save a signing secret
+5. Select events:
+   - `subscription_created`
+   - `subscription_updated`
+   - `subscription_cancelled`
+   - `subscription_expired`
+   - `subscription_payment_success`
+   - `order_created`
+
+6. Add signing secret to production environment variables
+
+## Testing in Development
+
+### Test Mode
+
+Lemon Squeezy provides test mode for development:
+
+1. In your dashboard, toggle **Test Mode** (top right)
+2. Create test products and variants
+3. Use test checkout flows
+
+### Test Checkout
+
+Lemon Squeezy provides test card numbers:
+
+| Card Number | Scenario |
+|-------------|----------|
+| `4242 4242 4242 4242` | Successful payment |
+| `4000 0000 0000 0002` | Declined (generic) |
+
+- Use any future expiration date
+- Use any 3-digit CVC
+
+### Testing Subscriptions
+
+1. Start your development server and ngrok:
+   ```bash
+   bun dev
+   # In another terminal:
+   ngrok http 3000
+   ```
+
+2. Configure webhook in Lemon Squeezy with your ngrok URL
+
+3. Create a checkout:
+   ```typescript
+   import { getPaymentAdapter } from '@/lib/payments/service'
+
+   const adapter = getPaymentAdapter()
+   const checkout = await adapter.createCheckout({
+     plan: 'pro',
+     userId: 'user_123',
+     email: 'test@example.com',
+     successUrl: 'http://localhost:3000/dashboard?checkout=success',
+   })
+
+   console.log('Checkout URL:', checkout.url)
+   ```
+
+4. Complete the test checkout
+
+5. Verify webhook events in your application logs
+
+## Lemon Squeezy Implementation Details
+
+The Lemon Squeezy adapter is implemented in `src/lib/payments/providers/lemonsqueezy.ts`.
+
+### Key Features
+
+#### Checkout Sessions
+
+Creates Lemon Squeezy checkouts with:
+- Variant-based pricing (not product-based)
+- Customer metadata
+- Custom redirect URLs
+- Trial periods (if configured)
+
+```typescript:src/lib/payments/providers/lemonsqueezy.ts
+async createCheckout(options: CheckoutOptions): Promise<CheckoutResult> {
+  const newCheckout: NewCheckout = {
+    productOptions: {
+      redirectUrl: successUrl || paymentConfig.providers.successUrl,
+      receiptButtonText: 'Go to Dashboard',
+      receiptLinkUrl: paymentConfig.providers.successUrl,
+    },
+    checkoutData: {
+      email,
+      custom: {
+        userId,
+        plan,
+        provider: 'lemonsqueezy',
+      },
+    },
+  }
+
+  const { data, error } = await createCheckout(
+    storeId,
+    Number.parseInt(price.productId), // Variant ID
+    newCheckout
+  )
+
+  return {
+    url: data.data.attributes.url,
+    sessionId: data.data.id,
+  }
+}
+```
+
+#### Customer Management
+
+Lemon Squeezy creates customers automatically during checkout:
+- Customers are created on first purchase
+- Customer data includes email and metadata
+- Uses customer lookup by email
+
+```typescript:src/lib/payments/providers/lemonsqueezy.ts
+async createCustomer(userId: string, email?: string): Promise<CustomerData> {
+  if (email) {
+    const { data } = await listCustomers({
+      filter: { email },
+      page: { size: 1 },
+    })
+
+    if (data?.data && data.data.length > 0) {
+      const customer = data.data[0]
+      return {
+        id: `ls_${customer.id}`,
+        providerCustomerId: customer.id,
+        email: customer.attributes.email,
+        userId,
+        provider: 'lemonsqueezy',
+      }
+    }
+  }
+
+  // Return placeholder - real customer created at checkout
+  return {
+    id: `ls_pending_${userId}`,
+    providerCustomerId: `ls_pending_${userId}`,
+    email,
+    userId,
+    provider: 'lemonsqueezy',
+  }
+}
+```
+
+#### Subscription Handling
+
+Provides:
+- Subscription retrieval by ID
+- Status mapping to unified format
+- Cancellation support (always at period end)
+
+```typescript:src/lib/payments/providers/lemonsqueezy.ts
+async cancelSubscription(
+  providerSubscriptionId: string,
+  cancelAtPeriodEnd = true
+): Promise<void> {
+  // Lemon Squeezy only supports cancelling at period end via API
+  const { error } = await cancelSubscription(providerSubscriptionId)
+  if (error) {
+    throw new Error(`Failed to cancel subscription: ${error.message}`)
+  }
+}
+```
+
+#### Webhook Processing
+
+Processes these events:
+- `subscription_created`, `subscription_updated`, `subscription_cancelled`, `subscription_expired`
+- `order_created`
+
+Webhook validation using HMAC:
+```typescript:src/lib/payments/providers/lemonsqueezy.ts
+async validateWebhook(rawBody: string, signature: string): Promise<boolean> {
+  const hmac = crypto.createHmac('sha256', process.env.LEMONSQUEEZY_WEBHOOK_SECRET!)
+  const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8')
+  const signatureBuffer = Buffer.from(signature, 'utf8')
+
+  return crypto.timingSafeEqual(digest, signatureBuffer)
+}
+```
+
+### Customer Portal
+
+Lemon Squeezy provides a customer portal accessible via magic link:
+
+```typescript
+const portal = await adapter.createPortal(
+  'customer_email@example.com',
+  'https://yourdomain.com/dashboard'
+)
+// Redirect to portal.url
+```
+
+The portal allows customers to:
+- Update payment methods
+- View invoices and receipts
+- Cancel subscriptions
+- Download tax invoices
+
+## Custom Data and Metadata
+
+You can pass custom data in checkouts to track users:
+
+```typescript
+checkoutData: {
+  custom: {
+    userId: 'user_123',
+    plan: 'pro',
+    // Add any custom fields
+    teamId: 'team_456',
+  },
+}
+```
+
+This data is returned in webhook events as `meta.custom_data`.
+
+## Going Live
+
+### Pre-Launch Checklist
+
+- [ ] Complete store verification in Lemon Squeezy
+- [ ] Set up payout method
+- [ ] Turn off Test Mode
+- [ ] Create live products and variants
+- [ ] Update environment variables with live variant IDs
+- [ ] Configure production webhook endpoint
+- [ ] Set up webhook signing secret
+- [ ] Test complete checkout flow with real card
+- [ ] Verify tax handling and invoicing
+- [ ] Test subscription management portal
+
+### Tax Compliance
+
+As a Merchant of Record, Lemon Squeezy handles:
+- **EU VAT**: All 27 EU countries
+- **US Sales Tax**: All applicable states
+- **UK VAT**
+- **Canadian GST/HST/PST**
+- **Australian GST**
+- **And more**: Check [Lemon Squeezy tax coverage](https://www.lemonsqueezy.com/help/taxes)
+
+You don't need to:
+- Register for tax IDs in different countries
+- Calculate tax rates
+- File tax returns
+- Generate compliant invoices
+
+### Security Best Practices
+
+1. **Protect API keys**: Keep `LEMONSQUEEZY_API_KEY` server-side only
+2. **Validate webhooks**: Always verify HMAC signatures
+3. **Use HTTPS**: Required for production webhooks
+4. **Secure webhook secret**: Use a strong random string
+5. **Monitor webhook logs**: Check for failed events
+
+## Troubleshooting
+
+### Webhook Not Received
+
+1. Verify ngrok is running (local dev)
+2. Check webhook endpoint is accessible
+3. Review webhook logs in Lemon Squeezy dashboard
+4. Ensure `LEMONSQUEEZY_WEBHOOK_SECRET` matches dashboard
+5. Check signature validation logic
+
+### Checkout Session Fails
+
+1. Verify `LEMONSQUEEZY_API_KEY` is set
+2. Check `LEMONSQUEEZY_STORE_ID` is correct
+3. Ensure variant IDs exist and are active
+4. Check that products are published
+5. Review error response from Lemon Squeezy API
+
+### Subscription Not Created
+
+1. Check webhook was sent (Lemon Squeezy dashboard)
+2. Verify webhook signature validation passes
+3. Review application logs for errors
+4. Ensure custom_data includes userId
+5. Check database for subscription records
+
+### Customer Portal Issues
+
+1. Ensure customer email is correct
+2. Verify customer exists in Lemon Squeezy
+3. Check customer has active subscription
+4. Try accessing portal directly from Lemon Squeezy dashboard
+
+## Lemon Squeezy vs Other Providers
+
+### When to Choose Lemon Squeezy
+
+✅ **Choose Lemon Squeezy if you:**
+- Want hassle-free global tax compliance
+- Are selling digital products or SaaS
+- Don't want to deal with tax registrations
+- Prefer simple setup and pricing
+- Are a solo founder or small team
+- Want Lemon Squeezy to handle refunds/chargebacks
+
+❌ **Avoid Lemon Squeezy if you:**
+- Need to be the merchant of record (legal/branding reasons)
+- Want maximum control over payment flow
+- Need extensive payment methods
+- Require advanced billing features (metered usage, etc.)
+- Want lowest possible fees
+
+### Feature Comparison
+
+| Feature | Lemon Squeezy | Stripe | Polar |
+|---------|---------------|--------|-------|
+| Merchant of Record | ✅ Yes | ❌ No | ❌ No |
+| Tax Handling | ✅ Automatic | ⚠️ Manual | ⚠️ Manual |
+| Setup Complexity | ✅ Low | ❌ High | ✅ Low |
+| Fees | ⚠️ 5% + processing | ⚠️ 2.9% + $0.30 | ✅ Competitive |
+| Payment Methods | ⚠️ Good | ✅ Extensive | ⚠️ Basic |
+| Customer Portal | ✅ Good | ✅ Advanced | ⚠️ Basic |
+| Best For | Digital products | Enterprises | Developer tools |
+
+## Additional Resources
+
+- [Lemon Squeezy Documentation](https://docs.lemonsqueezy.com)
+- [Lemon Squeezy API Reference](https://docs.lemonsqueezy.com/api)
+- [Lemon Squeezy SDK](https://github.com/lmsqueezy/lemonsqueezy.js)
+- [Tax Information](https://www.lemonsqueezy.com/help/taxes)
+- [Merchant of Record Explained](https://www.lemonsqueezy.com/help/getting-started/merchant-of-record)
+
+## Support
+
+For Lemon Squeezy-specific issues:
+- [Lemon Squeezy Help Center](https://www.lemonsqueezy.com/help)
+- [Email Support](mailto:hello@lemonsqueezy.com)
+- [Lemon Squeezy Discord](https://discord.gg/lemonsqueezy)
+
+For ShipFree integration issues:
+- Check the source code in `src/lib/payments/providers/lemonsqueezy.ts`
+- Review webhook handling in `src/app/api/webhooks/payments/route.ts`

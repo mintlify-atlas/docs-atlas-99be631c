@@ -1,0 +1,505 @@
+---
+title: Payments
+description: Multi-provider payment system with support for Stripe, Polar, and Lemon Squeezy
+---
+
+ShipFree includes a flexible payment system that supports multiple payment providers through a unified adapter interface. Switch between providers without changing your application code.
+
+## Supported Providers
+
+<CardGroup cols={3}>
+  <Card title="Stripe" icon="stripe">
+    Industry-leading payment processor with global reach
+  </Card>
+  <Card title="Polar" icon="snowflake">
+    Developer-friendly payment platform for digital products
+  </Card>
+  <Card title="Lemon Squeezy" icon="lemon">
+    Merchant of record platform handling taxes and compliance
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+The payment system uses an adapter pattern that provides a consistent interface across all providers:
+
+```typescript src/lib/payments/service.ts
+import { StripeAdapter } from './providers/stripe'
+import { PolarAdapter } from './providers/polar'
+import { LemonSqueezyAdapter } from './providers/lemonsqueezy'
+
+export function getPaymentAdapter(): PaymentAdapter {
+  const provider = env.PAYMENT_PROVIDER || 'stripe'
+  
+  switch (provider) {
+    case 'stripe':
+      return new StripeAdapter()
+    case 'polar':
+      return new PolarAdapter()
+    case 'lemonsqueezy':
+      return new LemonSqueezyAdapter()
+    default:
+      throw new Error(`Unknown payment provider: ${provider}`)
+  }
+}
+```
+
+<Info>
+  Set `PAYMENT_PROVIDER` in your `.env` file to choose your provider: `stripe`, `polar`, or `lemonsqueezy`
+</Info>
+
+## Plans & Pricing
+
+Plans are centrally configured in `src/config/payments.ts`:
+
+<Accordion title="View Payment Configuration">
+  ```typescript src/config/payments.ts
+  export const paymentConfig = {
+    plans: {
+      free: {
+        name: 'Free',
+        description: 'Perfect for getting started',
+        isFree: true,
+        prices: {},
+        features: [
+          'Up to 3 projects',
+          'Basic analytics',
+          'Community support',
+          'Standard templates',
+        ],
+      },
+      
+      starter: {
+        name: 'Starter',
+        description: 'Great for small teams',
+        prices: {
+          stripe: [
+            {
+              productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY,
+              interval: 'month',
+              amount: 990, // $9.90
+              currency: 'usd',
+              trialPeriodDays: 14,
+              type: 'recurring',
+            },
+            {
+              productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER_YEARLY,
+              interval: 'year',
+              amount: 9900, // $99
+              currency: 'usd',
+              trialPeriodDays: 14,
+              type: 'recurring',
+            },
+          ],
+        },
+        features: [
+          'Up to 10 projects',
+          'Advanced analytics',
+          'Email support',
+          'Premium templates',
+          'Custom integrations',
+        ],
+      },
+      
+      pro: {
+        name: 'Pro',
+        description: 'For growing businesses',
+        recommended: true,
+        prices: {
+          stripe: [
+            {
+              productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY,
+              interval: 'month',
+              amount: 2990, // $29.90
+              currency: 'usd',
+              seatBased: true,
+              trialPeriodDays: 14,
+              type: 'recurring',
+            },
+          ],
+        },
+        features: [
+          'Unlimited projects',
+          'Real-time analytics',
+          'Priority support',
+          'White-label options',
+          'Advanced integrations',
+          'Team collaboration',
+        ],
+        maxSeats: 50,
+      },
+      
+      enterprise: {
+        name: 'Enterprise',
+        description: 'For large organizations',
+        prices: {
+          stripe: [
+            {
+              productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE_MONTHLY,
+              interval: 'month',
+              amount: 9990, // $99.90
+              currency: 'usd',
+              seatBased: true,
+              trialPeriodDays: 30,
+              type: 'recurring',
+            },
+          ],
+        },
+        features: [
+          'Everything in Pro',
+          'Dedicated account manager',
+          'Custom contracts',
+          'SLA guarantees',
+          'Advanced security',
+          'Unlimited seats',
+        ],
+      },
+    },
+  }
+  ```
+</Accordion>
+
+### Accessing Plan Configuration
+
+```typescript
+import { getPlanConfig, getPriceConfig } from '@/config/payments'
+
+// Get plan details
+const proPlan = getPlanConfig('pro')
+console.log(proPlan.name) // "Pro"
+console.log(proPlan.features) // Array of features
+
+// Get prices for a specific provider
+const stripePrices = getPriceConfig('pro', 'stripe')
+console.log(stripePrices[0].amount) // 2990 (in cents)
+```
+
+## Database Schema
+
+The payment system uses these tables (defined in `src/database/schema.ts`):
+
+<Tabs>
+  <Tab title="Customer">
+    ```typescript src/database/schema.ts
+    export const customer = pgTable('customer', {
+      id: text('id').primaryKey(),
+      userId: text('user_id').notNull().references(() => user.id),
+      provider: text('provider').notNull(), // 'stripe', 'polar', 'lemonsqueezy'
+      providerCustomerId: text('provider_customer_id').notNull(),
+      email: text('email'),
+      createdAt: timestamp('created_at').defaultNow().notNull(),
+      updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    })
+    ```
+  </Tab>
+  <Tab title="Subscription">
+    ```typescript src/database/schema.ts
+    export const subscription = pgTable('subscription', {
+      id: text('id').primaryKey(),
+      userId: text('user_id').notNull().references(() => user.id),
+      customerId: text('customer_id').references(() => customer.id),
+      provider: text('provider').notNull(),
+      providerSubscriptionId: text('provider_subscription_id').notNull(),
+      status: text('status').notNull(), // 'active', 'canceled', 'past_due', etc.
+      plan: text('plan').notNull(), // 'free', 'starter', 'pro', 'enterprise'
+      interval: text('interval'), // 'month', 'year', null
+      amount: decimal('amount', { precision: 10, scale: 2 }),
+      currency: text('currency'),
+      currentPeriodStart: timestamp('current_period_start'),
+      currentPeriodEnd: timestamp('current_period_end'),
+      cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
+      canceledAt: timestamp('canceled_at'),
+      trialStart: timestamp('trial_start'),
+      trialEnd: timestamp('trial_end'),
+    })
+    ```
+  </Tab>
+  <Tab title="Payment">
+    ```typescript src/database/schema.ts
+    export const payment = pgTable('payment', {
+      id: text('id').primaryKey(),
+      userId: text('user_id').notNull().references(() => user.id),
+      customerId: text('customer_id').references(() => customer.id),
+      subscriptionId: text('subscription_id').references(() => subscription.id),
+      provider: text('provider').notNull(),
+      providerPaymentId: text('provider_payment_id').notNull(),
+      type: text('type').notNull(), // 'subscription', 'one_time', 'refund'
+      status: text('status').notNull(), // 'succeeded', 'pending', 'failed'
+      amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+      currency: text('currency').notNull(),
+      description: text('description'),
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Creating Checkout Sessions
+
+Create a checkout session to accept payments:
+
+<Tabs>
+  <Tab title="Server Action">
+    ```typescript src/app/actions/checkout.ts
+    'use server'
+    
+    import { getPaymentAdapter } from '@/lib/payments/service'
+    import { paymentConfig } from '@/config/payments'
+    
+    export async function createCheckoutSession(plan: PlanName) {
+      const adapter = getPaymentAdapter()
+      
+      const session = await adapter.createCheckout({
+        plan,
+        userId: user.id,
+        email: user.email,
+        successUrl: paymentConfig.providers.successUrl,
+        cancelUrl: paymentConfig.providers.cancelUrl,
+        trialDays: 14,
+      })
+      
+      return { url: session.url }
+    }
+    ```
+  </Tab>
+  <Tab title="API Route">
+    ```typescript src/app/api/checkout/route.ts
+    import { getPaymentAdapter } from '@/lib/payments/service'
+    import { NextRequest } from 'next/server'
+    
+    export async function POST(req: NextRequest) {
+      const { plan } = await req.json()
+      
+      const adapter = getPaymentAdapter()
+      const session = await adapter.createCheckout({
+        plan,
+        userId: user.id,
+        email: user.email,
+        successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?checkout=success`,
+        cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/pricing`,
+      })
+      
+      return Response.json({ url: session.url })
+    }
+    ```
+  </Tab>
+  <Tab title="Client Component">
+    ```tsx
+    'use client'
+    
+    import { useState } from 'react'
+    
+    export function PricingCard({ plan }: { plan: PlanName }) {
+      const [loading, setLoading] = useState(false)
+      
+      const handleCheckout = async () => {
+        setLoading(true)
+        
+        const response = await fetch('/api/checkout', {
+          method: 'POST',
+          body: JSON.stringify({ plan }),
+        })
+        
+        const { url } = await response.json()
+        window.location.href = url
+      }
+      
+      return (
+        <button onClick={handleCheckout} disabled={loading}>
+          {loading ? 'Loading...' : 'Subscribe'}
+        </button>
+      )
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Customer Portal
+
+Let users manage their subscriptions via the provider's hosted portal:
+
+```typescript src/app/actions/portal.ts
+'use server'
+
+import { getPaymentAdapter } from '@/lib/payments/service'
+import { db } from '@/database'
+import { customer } from '@/database/schema'
+import { eq } from 'drizzle-orm'
+
+export async function createPortalSession(userId: string) {
+  // Get customer record
+  const customerRecord = await db.query.customer.findFirst({
+    where: eq(customer.userId, userId),
+  })
+  
+  if (!customerRecord) {
+    throw new Error('No customer found')
+  }
+  
+  const adapter = getPaymentAdapter()
+  const portal = await adapter.createPortal(
+    customerRecord.providerCustomerId,
+    `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
+  )
+  
+  return { url: portal.url }
+}
+```
+
+## Webhook Handling
+
+<Steps>
+  <Step title="Configure Webhook Endpoint">
+    Set up webhook endpoints in your payment provider dashboard pointing to:
+    
+    - Stripe: `https://yourdomain.com/api/webhooks/stripe`
+    - Polar: `https://yourdomain.com/api/webhooks/polar`
+    - Lemon Squeezy: `https://yourdomain.com/api/webhooks/lemonsqueezy`
+  </Step>
+  <Step title="Process Events">
+    Webhooks automatically update subscription and payment records in your database.
+  </Step>
+  <Step title="Handle Failures">
+    Failed payments trigger status updates and can send notification emails.
+  </Step>
+</Steps>
+
+<Warning>
+  Always verify webhook signatures to ensure requests are legitimate. Each adapter includes signature validation.
+</Warning>
+
+## Subscription Management
+
+### Check Active Subscription
+
+```typescript
+import { db } from '@/database'
+import { subscription } from '@/database/schema'
+import { eq, and } from 'drizzle-orm'
+
+export async function getUserSubscription(userId: string) {
+  return await db.query.subscription.findFirst({
+    where: and(
+      eq(subscription.userId, userId),
+      eq(subscription.status, 'active')
+    ),
+  })
+}
+```
+
+### Cancel Subscription
+
+```typescript src/app/actions/subscription.ts
+'use server'
+
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+export async function cancelSubscription(
+  providerSubscriptionId: string,
+  cancelAtPeriodEnd = true
+) {
+  const adapter = getPaymentAdapter()
+  
+  await adapter.cancelSubscription(
+    providerSubscriptionId,
+    cancelAtPeriodEnd
+  )
+  
+  return { success: true }
+}
+```
+
+## Payment Adapter Interface
+
+All payment providers implement this interface:
+
+```typescript src/lib/payments/types.ts
+export interface PaymentAdapter {
+  readonly provider: PaymentProvider
+  
+  createCheckout(options: CheckoutOptions): Promise<CheckoutResult>
+  createCustomer(userId: string, email?: string): Promise<CustomerData>
+  getSubscription(providerSubscriptionId: string): Promise<SubscriptionData | null>
+  cancelSubscription(providerSubscriptionId: string, cancelAtPeriodEnd?: boolean): Promise<void>
+  createPortal(customerId: string, returnUrl?: string): Promise<PortalResult>
+  processWebhook(event: WebhookEvent): Promise<WebhookResult>
+  validateWebhook(rawBody: string, signature: string): Promise<boolean>
+}
+```
+
+<Tip>
+  This unified interface makes it easy to switch between payment providers without changing your application code.
+</Tip>
+
+## Environment Variables
+
+<Tabs>
+  <Tab title="Stripe">
+    ```bash .env
+    PAYMENT_PROVIDER=stripe
+    STRIPE_SECRET_KEY=sk_test_...
+    STRIPE_WEBHOOK_SECRET=whsec_...
+    
+    # Public price IDs
+    NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY=price_...
+    NEXT_PUBLIC_STRIPE_PRICE_STARTER_YEARLY=price_...
+    NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY=price_...
+    ```
+  </Tab>
+  <Tab title="Polar">
+    ```bash .env
+    PAYMENT_PROVIDER=polar
+    POLAR_ACCESS_TOKEN=polar_...
+    POLAR_WEBHOOK_SECRET=whsec_...
+    
+    # Public product IDs
+    NEXT_PUBLIC_POLAR_PRODUCT_STARTER_MONTHLY=prod_...
+    NEXT_PUBLIC_POLAR_PRODUCT_PRO_MONTHLY=prod_...
+    ```
+  </Tab>
+  <Tab title="Lemon Squeezy">
+    ```bash .env
+    PAYMENT_PROVIDER=lemonsqueezy
+    LEMONSQUEEZY_API_KEY=...
+    LEMONSQUEEZY_WEBHOOK_SECRET=...
+    LEMONSQUEEZY_STORE_ID=...
+    
+    # Public variant IDs
+    NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_STARTER_MONTHLY=...
+    ```
+  </Tab>
+</Tabs>
+
+## Testing Payments
+
+<Note>
+  Use test mode credentials during development. Each provider offers test cards and environments.
+</Note>
+
+<CardGroup cols={3}>
+  <Card title="Stripe Testing" href="https://stripe.com/docs/testing">
+    Use test cards like `4242 4242 4242 4242`
+  </Card>
+  <Card title="Polar Testing" href="https://docs.polar.sh/testing">
+    Polar provides a sandbox environment
+  </Card>
+  <Card title="Lemon Squeezy" href="https://docs.lemonsqueezy.com/help/getting-started/test-mode">
+    Enable test mode in your store settings
+  </Card>
+</CardGroup>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Stripe Docs" icon="stripe" href="https://stripe.com/docs">
+    Complete Stripe API documentation
+  </Card>
+  <Card title="Polar Docs" icon="book" href="https://docs.polar.sh">
+    Polar developer documentation
+  </Card>
+  <Card title="Lemon Squeezy" icon="lemon" href="https://docs.lemonsqueezy.com">
+    Lemon Squeezy API reference
+  </Card>
+  <Card title="Webhook Best Practices" icon="webhook" href="https://stripe.com/docs/webhooks/best-practices">
+    Learn about webhook security and reliability
+  </Card>
+</CardGroup>

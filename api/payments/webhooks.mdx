@@ -1,0 +1,467 @@
+---
+title: Payment Webhooks
+description: Handle payment provider webhooks for subscriptions, payments, and customer updates
+---
+
+The Payment Webhooks endpoint processes events from payment providers (Stripe, Polar, Lemon Squeezy) to keep your database synchronized with payment status changes.
+
+## Webhook Endpoint
+
+`POST /api/webhooks/payments`
+
+Receives and processes webhook events from payment providers.
+
+## Implementation Overview
+
+From `src/app/api/webhooks/payments/route.ts:10-225`, the webhook handler:
+
+1. **Verifies webhook signature** based on active provider
+2. **Parses the event** into a standardized format
+3. **Processes the event** via payment adapter
+4. **Updates database** with customer, subscription, and payment data
+
+### Webhook Flow
+
+```typescript
+export async function POST(req: Request) {
+  const rawBody = await req.text()
+  const headerList = await headers()
+  const adapter = getPaymentAdapter()
+
+  // 1. Get signature based on provider
+  let signature = ''
+  switch (adapter.provider) {
+    case 'stripe':
+      signature = headerList.get('stripe-signature') || ''
+      break
+    case 'polar':
+      signature = headerList.get('polar-webhook-signature') || ''
+      break
+    case 'lemonsqueezy':
+      signature = headerList.get('x-signature') || ''
+      break
+  }
+
+  // 2. Validate signature
+  const isValid = await adapter.validateWebhook(rawBody, signature)
+  if (!isValid) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+  }
+
+  // 3. Parse and process event
+  const event = parseWebhookEvent(rawBody, adapter.provider)
+  const result = await adapter.processWebhook(event)
+
+  // 4. Update database
+  await updateDatabase(result)
+
+  return NextResponse.json({ received: true })
+}
+```
+
+## Signature Verification
+
+<Info>
+  All webhook requests are verified using provider-specific signatures to ensure authenticity.
+</Info>
+
+### Signature Headers by Provider
+
+<CodeGroup>
+```typescript Stripe
+// Header: stripe-signature
+const signature = headerList.get('stripe-signature')
+
+// Verified using STRIPE_WEBHOOK_SECRET
+await adapter.validateWebhook(rawBody, signature)
+```
+
+```typescript Polar
+// Header: polar-webhook-signature
+const signature = headerList.get('polar-webhook-signature')
+
+// Verified using Polar's verification method
+await adapter.validateWebhook(rawBody, signature)
+```
+
+```typescript Lemon Squeezy
+// Header: x-signature
+const signature = headerList.get('x-signature')
+
+// Verified using LEMONSQUEEZY_WEBHOOK_SECRET
+await adapter.validateWebhook(rawBody, signature)
+```
+</CodeGroup>
+
+From `src/app/api/webhooks/payments/route.ts:22-42`.
+
+## Supported Events
+
+### Customer Events
+
+<ParamField path="customer.created" type="event">
+  New customer created
+  
+  **Updates:** Creates new record in `customer` table
+</ParamField>
+
+<ParamField path="customer.updated" type="event">
+  Customer information updated
+  
+  **Updates:** Updates email and metadata in `customer` table
+</ParamField>
+
+<ParamField path="customer.deleted" type="event">
+  Customer deleted
+  
+  **Updates:** Can cascade delete related records
+</ParamField>
+
+### Subscription Events
+
+<ParamField path="subscription.created" type="event">
+  New subscription created
+  
+  **Updates:** Creates record in `subscription` table with status `active` or `trialing`
+</ParamField>
+
+<ParamField path="subscription.updated" type="event">
+  Subscription modified (plan change, status change, etc.)
+  
+  **Updates:** Updates subscription status, plan, billing period, amounts
+</ParamField>
+
+<ParamField path="subscription.canceled" type="event">
+  Subscription canceled
+  
+  **Updates:** Sets status to `canceled`, records `canceledAt` timestamp
+</ParamField>
+
+<ParamField path="subscription.deleted" type="event">
+  Subscription permanently deleted
+  
+  **Updates:** Marks subscription as deleted
+</ParamField>
+
+### Payment Events
+
+<ParamField path="invoice.payment_succeeded" type="event">
+  Payment successful
+  
+  **Updates:** Creates `payment` record with status `succeeded`
+</ParamField>
+
+<ParamField path="invoice.payment_failed" type="event">
+  Payment failed
+  
+  **Updates:** Creates or updates `payment` record with status `failed`, may update subscription to `past_due`
+</ParamField>
+
+<ParamField path="checkout.session.completed" type="event">
+  Checkout session completed
+  
+  **Updates:** Creates customer, subscription, and initial payment records
+</ParamField>
+
+<ParamField path="order.paid" type="event">
+  One-time payment completed (Lemon Squeezy)
+  
+  **Updates:** Creates `payment` record for one-time purchase
+</ParamField>
+
+From `src/lib/payments/types.ts:109-120`.
+
+## Database Updates
+
+### Customer Table
+
+From `src/app/api/webhooks/payments/route.ts:96-119`:
+
+```typescript
+if (result.customer) {
+  const existingCustomer = await db.query.customer.findFirst({
+    where: eq(customer.providerCustomerId, result.customer.providerCustomerId)
+  })
+
+  if (existingCustomer) {
+    // Update existing customer
+    await db.update(customer)
+      .set({
+        email: result.customer.email,
+        updatedAt: new Date()
+      })
+      .where(eq(customer.id, existingCustomer.id))
+  } else if (result.customer.userId) {
+    // Create new customer
+    await db.insert(customer).values({
+      id: result.customer.id,
+      userId: result.customer.userId,
+      provider: result.customer.provider,
+      providerCustomerId: result.customer.providerCustomerId,
+      email: result.customer.email
+    })
+  }
+}
+```
+
+### Subscription Table
+
+From `src/app/api/webhooks/payments/route.ts:122-181`:
+
+```typescript
+if (result.subscription) {
+  const existingSub = await db.query.subscription.findFirst({
+    where: eq(subscription.providerSubscriptionId, result.subscription.providerSubscriptionId)
+  })
+
+  if (existingSub) {
+    // Update existing subscription
+    await db.update(subscription).set({
+      status: result.subscription.status,
+      plan: result.subscription.plan,
+      interval: result.subscription.interval,
+      amount: result.subscription.amount?.toString(),
+      currency: result.subscription.currency,
+      currentPeriodStart: result.subscription.currentPeriodStart,
+      currentPeriodEnd: result.subscription.currentPeriodEnd,
+      cancelAtPeriodEnd: result.subscription.cancelAtPeriodEnd,
+      canceledAt: result.subscription.canceledAt,
+      trialStart: result.subscription.trialStart,
+      trialEnd: result.subscription.trialEnd,
+      updatedAt: new Date()
+    }).where(eq(subscription.id, existingSub.id))
+  } else if (result.subscription.userId) {
+    // Create new subscription
+    await db.insert(subscription).values({ ... })
+  }
+}
+```
+
+### Payment Table
+
+From `src/app/api/webhooks/payments/route.ts:185-217`:
+
+```typescript
+if (result.payment) {
+  const existingPayment = await db.query.payment.findFirst({
+    where: eq(payment.providerPaymentId, result.payment.providerPaymentId)
+  })
+
+  if (existingPayment) {
+    // Update payment status
+    await db.update(payment)
+      .set({ status: result.payment.status, updatedAt: new Date() })
+      .where(eq(payment.id, existingPayment.id))
+  } else if (result.payment.userId) {
+    // Create new payment
+    await db.insert(payment).values({
+      id: result.payment.id,
+      userId: result.payment.userId,
+      customerId: result.payment.customerId,
+      subscriptionId: result.payment.subscriptionId,
+      provider: result.payment.provider,
+      providerPaymentId: result.payment.providerPaymentId,
+      type: result.payment.type,
+      status: result.payment.status,
+      amount: result.payment.amount.toString(),
+      currency: result.payment.currency,
+      description: result.payment.description
+    })
+  }
+}
+```
+
+## Webhook Event Structure
+
+From `src/lib/payments/types.ts:125-130`:
+
+```typescript
+export interface WebhookEvent {
+  type: WebhookEventType
+  provider: PaymentProvider
+  data: any // Provider-specific event data
+  rawEvent: any // Raw provider event
+}
+```
+
+## Provider-Specific Parsing
+
+From `src/app/api/webhooks/payments/route.ts:56-80`:
+
+<CodeGroup>
+```typescript Stripe
+const parsedBody = JSON.parse(rawBody)
+
+event = {
+  type: parsedBody.type,
+  provider: 'stripe',
+  data: parsedBody.data.object,
+  rawEvent: parsedBody
+}
+```
+
+```typescript Polar
+const parsedBody = JSON.parse(rawBody)
+
+event = {
+  type: parsedBody.type,
+  provider: 'polar',
+  data: parsedBody.data,
+  rawEvent: parsedBody
+}
+```
+
+```typescript Lemon Squeezy
+const parsedBody = JSON.parse(rawBody)
+
+event = {
+  type: parsedBody.meta.event_name, // Different from Stripe/Polar
+  provider: 'lemonsqueezy',
+  data: parsedBody,
+  rawEvent: parsedBody
+}
+```
+</CodeGroup>
+
+## Setup Instructions
+
+<Steps>
+  <Step title="Configure Webhook URL">
+    Add webhook endpoint to your payment provider:
+    
+    ```
+    https://yourapp.com/api/webhooks/payments
+    ```
+  </Step>
+  
+  <Step title="Set Webhook Secret">
+    Add the webhook signing secret to your environment variables:
+    
+    <CodeGroup>
+    ```bash Stripe
+    STRIPE_WEBHOOK_SECRET=whsec_...
+    ```
+    
+    ```bash Polar
+    # Polar uses access token for verification
+    POLAR_ACCESS_TOKEN=polar_at_...
+    ```
+    
+    ```bash Lemon Squeezy
+    LEMONSQUEEZY_WEBHOOK_SECRET=...
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Select Events">
+    Configure which events to receive (recommended):
+    
+    - `customer.created`
+    - `customer.updated`
+    - `subscription.created`
+    - `subscription.updated`
+    - `subscription.deleted`
+    - `invoice.payment_succeeded`
+    - `invoice.payment_failed`
+    - `checkout.session.completed`
+  </Step>
+  
+  <Step title="Test Webhook">
+    Use provider's test mode to verify webhook is working:
+    
+    <CodeGroup>
+    ```bash Stripe CLI
+    stripe trigger checkout.session.completed
+    ```
+    
+    ```bash cURL (Test)
+    curl -X POST https://yourapp.com/api/webhooks/payments \
+      -H "stripe-signature: test_signature" \
+      -d @webhook-payload.json
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Response Format
+
+### Success Response
+
+```json
+{
+  "received": true
+}
+```
+
+Status: `200 OK`
+
+### Error Responses
+
+<ResponseField name="400" type="Bad Request">
+  Missing or invalid signature
+  
+  ```json
+  { "error": "Missing signature" }
+  { "error": "Invalid signature" }
+  { "error": "Invalid JSON" }
+  ```
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Webhook processing error
+  
+  ```json
+  {
+    "error": "Failed to process subscription.updated event"
+  }
+  ```
+</ResponseField>
+
+## Idempotency
+
+<Warning>
+  The webhook handler uses `providerCustomerId`, `providerSubscriptionId`, and `providerPaymentId` to ensure idempotency. Duplicate events are handled gracefully by updating existing records.
+</Warning>
+
+From `src/app/api/webhooks/payments/route.ts:97-99, 123-125, 186-188`:
+
+```typescript
+// Check if record exists before creating
+const existing = await db.query.customer.findFirst({
+  where: eq(customer.providerCustomerId, providerCustomerId)
+})
+
+if (existing) {
+  // Update instead of creating duplicate
+  await db.update(customer).set({ ... })
+}
+```
+
+## Debugging
+
+Webhook errors are logged to console:
+
+```typescript
+console.error('Webhook processing error:', result.error)
+console.error('Webhook handler error:', error)
+```
+
+From `src/app/api/webhooks/payments/route.ts:89, 222`.
+
+<Tip>
+  Enable detailed logging in development to troubleshoot webhook issues. Check your payment provider's dashboard for webhook delivery status and retry attempts.
+</Tip>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Database Schema" icon="database" href="/api/database/schema">
+    View customer, subscription, and payment tables
+  </Card>
+  <Card title="Checkout API" icon="credit-card" href="/api/payments/checkout">
+    Create checkout sessions
+  </Card>
+  <Card title="Payment Types" icon="code" href="/api/payments/types">
+    TypeScript type definitions
+  </Card>
+</CardGroup>

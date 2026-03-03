@@ -1,0 +1,435 @@
+---
+title: Authentication
+description: Secure authentication system powered by Better-Auth with support for multiple authentication methods
+---
+
+ShipFree uses [Better-Auth](https://better-auth.com) as its authentication foundation, providing a flexible, type-safe authentication system with support for email/password, OAuth providers, magic links, and OTP verification.
+
+## Why Better-Auth?
+
+Better-Auth was chosen for ShipFree because it provides:
+
+- **Type-safe** - Full TypeScript support with excellent IntelliSense
+- **Framework-agnostic** - Works with any backend, easily integrated with Next.js
+- **Plugin system** - Extensible architecture for adding features
+- **Database flexibility** - Supports multiple databases via Drizzle ORM
+- **Modern authentication** - Built-in support for passwordless, OAuth, and more
+
+## Authentication Methods
+
+<CardGroup cols={2}>
+  <Card title="Email & Password" icon="envelope">
+    Traditional authentication with optional email verification
+  </Card>
+  <Card title="OAuth Providers" icon="users">
+    Google, GitHub, Microsoft, and Facebook sign-in
+  </Card>
+  <Card title="Email OTP" icon="key">
+    Passwordless authentication via one-time codes
+  </Card>
+  <Card title="Magic Links" icon="wand-magic-sparkles">
+    Secure sign-in links sent to email
+  </Card>
+</CardGroup>
+
+## Configuration
+
+The authentication system is configured in `src/lib/auth/auth.ts`:
+
+```typescript src/lib/auth/auth.ts
+import { betterAuth } from 'better-auth'
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { emailOTP, organization } from 'better-auth/plugins'
+
+export const auth = betterAuth({
+  baseURL: getBaseUrl(),
+  database: drizzleAdapter(db, {
+    provider: 'pg',
+  }),
+  
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 24 * 60 * 60, // 24 hours
+    },
+    expiresIn: 30 * 24 * 60 * 60, // 30 days
+    updateAge: 24 * 60 * 60, // Refresh every 24 hours
+  },
+  
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: isEmailVerificationEnabled,
+  },
+  
+  plugins: [
+    emailOTP({
+      otpLength: 6,
+      expiresIn: 15 * 60, // 15 minutes
+    }),
+    organization(),
+  ],
+})
+```
+
+### OAuth Providers
+
+Configure OAuth providers via environment variables:
+
+<Tabs>
+  <Tab title="Google">
+    ```bash .env
+    GOOGLE_CLIENT_ID=your_client_id
+    GOOGLE_CLIENT_SECRET=your_client_secret
+    ```
+  </Tab>
+  <Tab title="GitHub">
+    ```bash .env
+    GITHUB_CLIENT_ID=your_client_id
+    GITHUB_CLIENT_SECRET=your_client_secret
+    ```
+  </Tab>
+  <Tab title="Microsoft">
+    ```bash .env
+    MICROSOFT_CLIENT_ID=your_client_id
+    MICROSOFT_CLIENT_SECRET=your_client_secret
+    MICROSOFT_TENANT_ID=common  # or your tenant ID
+    ```
+  </Tab>
+  <Tab title="Facebook">
+    ```bash .env
+    FACEBOOK_CLIENT_ID=your_app_id
+    FACEBOOK_CLIENT_SECRET=your_app_secret
+    ```
+  </Tab>
+</Tabs>
+
+## Client-Side Usage
+
+### Authentication Client
+
+The auth client is configured in `src/lib/auth/auth-client.ts`:
+
+```typescript src/lib/auth/auth-client.ts
+import { createAuthClient } from 'better-auth/react'
+import { emailOTPClient, organizationClient } from 'better-auth/client/plugins'
+
+export const client = createAuthClient({
+  baseURL: getBaseUrl(),
+  plugins: [emailOTPClient(), organizationClient()],
+})
+
+export const { signIn, signUp, signOut, useSession } = client
+```
+
+### Using in React Components
+
+<Tabs>
+  <Tab title="Email/Password Sign In">
+    ```tsx
+    'use client'
+    
+    import { signIn } from '@/lib/auth'
+    
+    export function LoginForm() {
+      const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        
+        await signIn.email({
+          email: 'user@example.com',
+          password: 'password',
+        })
+      }
+      
+      return <form onSubmit={handleSubmit}>{/* form fields */}</form>
+    }
+    ```
+  </Tab>
+  <Tab title="OAuth Sign In">
+    ```tsx
+    'use client'
+    
+    import { signIn } from '@/lib/auth'
+    
+    export function OAuthButtons() {
+      return (
+        <>
+          <button onClick={() => signIn.social({ provider: 'google' })}>
+            Sign in with Google
+          </button>
+          <button onClick={() => signIn.social({ provider: 'github' })}>
+            Sign in with GitHub
+          </button>
+        </>
+      )
+    }
+    ```
+  </Tab>
+  <Tab title="Email OTP">
+    ```tsx
+    'use client'
+    
+    import { client } from '@/lib/auth'
+    
+    export function OTPLogin() {
+      // Step 1: Send OTP
+      const sendOTP = async (email: string) => {
+        await client.signIn.emailOtp({ email })
+      }
+      
+      // Step 2: Verify OTP
+      const verifyOTP = async (email: string, otp: string) => {
+        await client.signIn.emailOtp.verify({ email, otp })
+      }
+      
+      return <>{/* OTP form */}</>
+    }
+    ```
+  </Tab>
+  <Tab title="Get Session">
+    ```tsx
+    'use client'
+    
+    import { useSession } from '@/lib/auth'
+    
+    export function UserProfile() {
+      const { data: session, isPending } = useSession()
+      
+      if (isPending) return <div>Loading...</div>
+      if (!session) return <div>Not authenticated</div>
+      
+      return (
+        <div>
+          <p>Welcome, {session.user.name}</p>
+          <p>Email: {session.user.email}</p>
+        </div>
+      )
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Server-Side Usage
+
+Access authentication in Server Components and API routes:
+
+<Tabs>
+  <Tab title="Server Component">
+    ```tsx src/app/(main)/dashboard/page.tsx
+    import { auth } from '@/lib/auth'
+    import { headers } from 'next/headers'
+    
+    export default async function DashboardPage() {
+      const session = await auth.api.getSession({
+        headers: await headers(),
+      })
+      
+      if (!session) {
+        redirect('/login')
+      }
+      
+      return (
+        <div>
+          <h1>Dashboard</h1>
+          <p>Welcome, {session.user.name}</p>
+        </div>
+      )
+    }
+    ```
+  </Tab>
+  <Tab title="API Route">
+    ```typescript src/app/api/user/route.ts
+    import { auth } from '@/lib/auth'
+    import { NextRequest } from 'next/server'
+    
+    export async function GET(req: NextRequest) {
+      const session = await auth.api.getSession({
+        headers: req.headers,
+      })
+      
+      if (!session) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      
+      return Response.json({ user: session.user })
+    }
+    ```
+  </Tab>
+  <Tab title="Server Action">
+    ```typescript src/app/actions/user.ts
+    'use server'
+    
+    import { auth } from '@/lib/auth'
+    import { headers } from 'next/headers'
+    
+    export async function updateProfile(formData: FormData) {
+      const session = await auth.api.getSession({
+        headers: await headers(),
+      })
+      
+      if (!session) {
+        throw new Error('Unauthorized')
+      }
+      
+      // Update user profile
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Database Schema
+
+Better-Auth uses these tables (defined in `src/database/schema.ts`):
+
+<Accordion title="View Database Schema">
+  ```typescript src/database/schema.ts
+  export const user = pgTable('user', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull().unique(),
+    emailVerified: boolean('email_verified').default(false).notNull(),
+    image: text('image'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  })
+  
+  export const session = pgTable('session', {
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at').notNull(),
+    token: text('token').notNull().unique(),
+    userId: text('user_id').notNull().references(() => user.id),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+  })
+  
+  export const account = pgTable('account', {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id').notNull().references(() => user.id),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    password: text('password'),
+  })
+  
+  export const verification = pgTable('verification', {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+  })
+  ```
+</Accordion>
+
+## Session Management
+
+<Steps>
+  <Step title="Session Creation">
+    When a user signs in, Better-Auth creates a session with a secure token stored in a cookie.
+  </Step>
+  <Step title="Cookie Cache">
+    Session data is cached in the cookie for 24 hours to reduce database queries.
+  </Step>
+  <Step title="Auto Refresh">
+    Sessions are automatically refreshed every 24 hours if the user is active.
+  </Step>
+  <Step title="Expiration">
+    Sessions expire after 30 days of inactivity and require re-authentication.
+  </Step>
+</Steps>
+
+### Session Configuration
+
+```typescript src/lib/auth/auth.ts
+session: {
+  cookieCache: {
+    enabled: true,
+    maxAge: 24 * 60 * 60, // Cache for 24 hours
+  },
+  expiresIn: 30 * 24 * 60 * 60, // Session lasts 30 days
+  updateAge: 24 * 60 * 60, // Refresh every 24 hours
+  freshAge: 60 * 60, // Consider session fresh for 1 hour
+}
+```
+
+## Email Verification
+
+<Note>
+  Email verification can be enabled/disabled via the `EMAIL_VERIFICATION_ENABLED` feature flag in `src/config/feature-flags.ts`.
+</Note>
+
+When enabled, users must verify their email before accessing the application:
+
+```typescript src/lib/auth/auth.ts
+emailAndPassword: {
+  enabled: true,
+  requireEmailVerification: isEmailVerificationEnabled,
+  sendResetPassword: async ({ user, url }) => {
+    const html = await renderPasswordResetEmail(user.name || '', url)
+    
+    await sendEmail({
+      to: user.email,
+      subject: 'Reset Your Password',
+      html,
+      from: getFromEmailAddress(),
+      emailType: 'transactional',
+    })
+  },
+}
+```
+
+## Organization Support
+
+Better-Auth includes built-in organization/team support:
+
+```typescript src/lib/auth/auth.ts
+plugins: [
+  organization({
+    organizationCreation: {
+      afterCreate: async ({ organization, user }) => {
+        console.info('Organization created', {
+          organizationId: organization.id,
+          creatorId: user.id,
+        })
+      },
+    },
+  }),
+]
+```
+
+<Tip>
+  You can restrict organization creation based on subscription plan by implementing the `allowUserToCreateOrganization` callback.
+</Tip>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Secure Cookies" icon="lock">
+    Sessions are stored in HTTP-only, secure cookies in production
+  </Card>
+  <Card title="CSRF Protection" icon="shield">
+    Built-in CSRF protection for all authentication requests
+  </Card>
+  <Card title="Rate Limiting" icon="gauge">
+    Consider adding rate limiting to prevent brute-force attacks
+  </Card>
+  <Card title="Password Hashing" icon="key">
+    Passwords are hashed using bcrypt before storage
+  </Card>
+</CardGroup>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Better-Auth Docs" icon="book" href="https://better-auth.com/docs">
+    Official Better-Auth documentation
+  </Card>
+  <Card title="Plugin System" icon="puzzle-piece" href="https://better-auth.com/docs/plugins">
+    Learn about available plugins
+  </Card>
+  <Card title="OAuth Providers" icon="users" href="https://better-auth.com/docs/authentication/oauth">
+    Configure additional OAuth providers
+  </Card>
+  <Card title="Custom Fields" icon="wrench" href="https://better-auth.com/docs/concepts/database">
+    Add custom fields to user schema
+  </Card>
+</CardGroup>

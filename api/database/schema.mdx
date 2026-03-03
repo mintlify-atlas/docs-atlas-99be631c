@@ -1,0 +1,566 @@
+---
+title: Database Schema
+description: Complete PostgreSQL schema reference for ShipFree using Drizzle ORM
+---
+
+ShipFree uses PostgreSQL with Drizzle ORM for type-safe database operations. The schema is defined in `src/database/schema.ts`.
+
+## Database Connection
+
+From `src/database/index.ts:1-16`:
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+import * as schema from './schema'
+import { env } from '@/config/env'
+
+const queryClient = postgres(env.DATABASE_URL)
+
+export const db = drizzle({ client: queryClient, schema })
+```
+
+## Authentication Tables
+
+### user
+
+Stores user account information.
+
+**Location:** `src/database/schema.ts:4-15`
+
+<ParamField path="id" type="text" required>
+  Primary key. User identifier.
+</ParamField>
+
+<ParamField path="name" type="text" required>
+  User's display name
+</ParamField>
+
+<ParamField path="email" type="text" required>
+  Unique email address
+</ParamField>
+
+<ParamField path="emailVerified" type="boolean" default={false}>
+  Email verification status
+</ParamField>
+
+<ParamField path="image" type="text">
+  Profile image URL (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Account creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp" default="now()">
+  Last update timestamp (auto-updated)
+</ParamField>
+
+**Indexes:**
+- Unique index on `email`
+
+**Relations:**
+- `sessions` → Many `session` records
+- `accounts` → Many `account` records
+- `customers` → Many `customer` records
+- `subscriptions` → Many `subscription` records
+- `payments` → Many `payment` records
+
+### session
+
+Stores active user sessions managed by Better-Auth.
+
+**Location:** `src/database/schema.ts:17-34`
+
+<ParamField path="id" type="text" required>
+  Primary key. Session identifier.
+</ParamField>
+
+<ParamField path="expiresAt" type="timestamp" required>
+  Session expiration time
+</ParamField>
+
+<ParamField path="token" type="text" required>
+  Unique session token (stored in cookies)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Session creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last activity timestamp
+</ParamField>
+
+<ParamField path="ipAddress" type="text">
+  Client IP address (nullable)
+</ParamField>
+
+<ParamField path="userAgent" type="text">
+  Client user agent string (nullable)
+</ParamField>
+
+<ParamField path="userId" type="text" required>
+  Foreign key to `user.id` (cascades on delete)
+</ParamField>
+
+**Indexes:**
+- Index on `userId`
+- Unique index on `token`
+
+**Relations:**
+- `user` → One `user` record
+
+### account
+
+Stores OAuth provider accounts linked to users.
+
+**Location:** `src/database/schema.ts:36-58`
+
+<ParamField path="id" type="text" required>
+  Primary key. Account identifier.
+</ParamField>
+
+<ParamField path="accountId" type="text" required>
+  Provider's account identifier
+</ParamField>
+
+<ParamField path="providerId" type="text" required>
+  OAuth provider name (e.g., 'google', 'github')
+</ParamField>
+
+<ParamField path="userId" type="text" required>
+  Foreign key to `user.id` (cascades on delete)
+</ParamField>
+
+<ParamField path="accessToken" type="text">
+  OAuth access token (nullable, encrypted recommended)
+</ParamField>
+
+<ParamField path="refreshToken" type="text">
+  OAuth refresh token (nullable, encrypted recommended)
+</ParamField>
+
+<ParamField path="idToken" type="text">
+  OAuth ID token (nullable)
+</ParamField>
+
+<ParamField path="accessTokenExpiresAt" type="timestamp">
+  Access token expiration (nullable)
+</ParamField>
+
+<ParamField path="refreshTokenExpiresAt" type="timestamp">
+  Refresh token expiration (nullable)
+</ParamField>
+
+<ParamField path="scope" type="text">
+  OAuth scopes granted (nullable)
+</ParamField>
+
+<ParamField path="password" type="text">
+  Hashed password for email/password auth (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Account link timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last update timestamp
+</ParamField>
+
+**Indexes:**
+- Index on `userId`
+
+**Relations:**
+- `user` → One `user` record
+
+### verification
+
+Stores email verification tokens and OTP codes.
+
+**Location:** `src/database/schema.ts:60-74`
+
+<ParamField path="id" type="text" required>
+  Primary key. Verification identifier.
+</ParamField>
+
+<ParamField path="identifier" type="text" required>
+  Email address or user identifier
+</ParamField>
+
+<ParamField path="value" type="text" required>
+  Verification token or OTP code
+</ParamField>
+
+<ParamField path="expiresAt" type="timestamp" required>
+  Token/OTP expiration time
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Update timestamp
+</ParamField>
+
+**Indexes:**
+- Index on `identifier`
+
+## Payment Tables
+
+### customer
+
+Stores payment provider customer records.
+
+**Location:** `src/database/schema.ts:77-97`
+
+<ParamField path="id" type="text" required>
+  Primary key. Internal customer identifier.
+</ParamField>
+
+<ParamField path="userId" type="text" required>
+  Foreign key to `user.id` (cascades on delete)
+</ParamField>
+
+<ParamField path="provider" type="text" required>
+  Payment provider: `stripe`, `polar`, or `lemonsqueezy`
+</ParamField>
+
+<ParamField path="providerCustomerId" type="text" required>
+  Customer ID from payment provider (e.g., `cus_xxx` for Stripe)
+</ParamField>
+
+<ParamField path="email" type="text">
+  Customer email at provider (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Record creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last update timestamp
+</ParamField>
+
+**Indexes:**
+- Index on `userId`
+- Index on `providerCustomerId`
+
+**Relations:**
+- `user` → One `user` record
+- `subscriptions` → Many `subscription` records
+- `payments` → Many `payment` records
+
+### subscription
+
+Stores subscription records across all payment providers.
+
+**Location:** `src/database/schema.ts:99-132`
+
+<ParamField path="id" type="text" required>
+  Primary key. Internal subscription identifier.
+</ParamField>
+
+<ParamField path="userId" type="text" required>
+  Foreign key to `user.id` (cascades on delete)
+</ParamField>
+
+<ParamField path="customerId" type="text">
+  Foreign key to `customer.id` (sets null on delete)
+</ParamField>
+
+<ParamField path="provider" type="text" required>
+  Payment provider: `stripe`, `polar`, or `lemonsqueezy`
+</ParamField>
+
+<ParamField path="providerSubscriptionId" type="text" required>
+  Subscription ID from payment provider (e.g., `sub_xxx` for Stripe)
+</ParamField>
+
+<ParamField path="status" type="text" required>
+  Subscription status:
+  - `active` - Active subscription
+  - `canceled` - Canceled
+  - `past_due` - Payment failed
+  - `trialing` - In trial period
+  - `incomplete` - Incomplete payment
+  - `paused` - Paused subscription
+</ParamField>
+
+<ParamField path="plan" type="text" required>
+  Plan name: `free`, `starter`, `pro`, or `enterprise`
+</ParamField>
+
+<ParamField path="interval" type="text">
+  Billing interval: `month`, `year`, or `null` for one-time
+</ParamField>
+
+<ParamField path="amount" type="decimal(10,2)">
+  Subscription price amount (nullable)
+</ParamField>
+
+<ParamField path="currency" type="text">
+  Currency code (e.g., `usd`, `eur`)
+</ParamField>
+
+<ParamField path="currentPeriodStart" type="timestamp">
+  Current billing period start (nullable)
+</ParamField>
+
+<ParamField path="currentPeriodEnd" type="timestamp">
+  Current billing period end (nullable)
+</ParamField>
+
+<ParamField path="cancelAtPeriodEnd" type="boolean" default={false}>
+  Whether subscription cancels at period end
+</ParamField>
+
+<ParamField path="canceledAt" type="timestamp">
+  Cancellation timestamp (nullable)
+</ParamField>
+
+<ParamField path="trialStart" type="timestamp">
+  Trial period start (nullable)
+</ParamField>
+
+<ParamField path="trialEnd" type="timestamp">
+  Trial period end (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Subscription creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last update timestamp
+</ParamField>
+
+**Indexes:**
+- Index on `userId`
+- Index on `customerId`
+- Index on `providerSubscriptionId`
+- Index on `status`
+
+**Relations:**
+- `user` → One `user` record
+- `customer` → One `customer` record
+- `payments` → Many `payment` records
+
+### payment
+
+Stores individual payment transactions.
+
+**Location:** `src/database/schema.ts:134-164`
+
+<ParamField path="id" type="text" required>
+  Primary key. Internal payment identifier.
+</ParamField>
+
+<ParamField path="userId" type="text" required>
+  Foreign key to `user.id` (cascades on delete)
+</ParamField>
+
+<ParamField path="customerId" type="text">
+  Foreign key to `customer.id` (sets null on delete)
+</ParamField>
+
+<ParamField path="subscriptionId" type="text">
+  Foreign key to `subscription.id` (sets null on delete)
+</ParamField>
+
+<ParamField path="provider" type="text" required>
+  Payment provider: `stripe`, `polar`, or `lemonsqueezy`
+</ParamField>
+
+<ParamField path="providerPaymentId" type="text" required>
+  Payment ID from provider (e.g., `pi_xxx` for Stripe)
+</ParamField>
+
+<ParamField path="type" type="text" required>
+  Payment type:
+  - `subscription` - Recurring subscription payment
+  - `one_time` - One-time purchase
+  - `refund` - Refund transaction
+</ParamField>
+
+<ParamField path="status" type="text" required>
+  Payment status:
+  - `succeeded` - Payment successful
+  - `pending` - Payment processing
+  - `failed` - Payment failed
+  - `canceled` - Payment canceled
+  - `refunded` - Payment refunded
+</ParamField>
+
+<ParamField path="amount" type="decimal(10,2)" required>
+  Payment amount
+</ParamField>
+
+<ParamField path="currency" type="text" required>
+  Currency code (e.g., `usd`, `eur`)
+</ParamField>
+
+<ParamField path="description" type="text">
+  Payment description (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Payment timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last update timestamp
+</ParamField>
+
+**Indexes:**
+- Index on `userId`
+- Index on `customerId`
+- Index on `subscriptionId`
+- Index on `providerPaymentId`
+
+**Relations:**
+- `user` → One `user` record
+- `customer` → One `customer` record
+- `subscription` → One `subscription` record
+
+### premiumPurchase
+
+Stores premium one-time purchases (Stripe Checkout sessions).
+
+**Location:** `src/database/schema.ts:166-184`
+
+<ParamField path="id" type="text" required>
+  Primary key. Purchase identifier.
+</ParamField>
+
+<ParamField path="stripeSessionId" type="text" required>
+  Unique Stripe Checkout session ID
+</ParamField>
+
+<ParamField path="stripeCustomerEmail" type="text">
+  Customer email from Stripe (nullable)
+</ParamField>
+
+<ParamField path="githubEmail" type="text">
+  GitHub email for repo access (nullable)
+</ParamField>
+
+<ParamField path="githubUsername" type="text">
+  GitHub username for repo access (nullable)
+</ParamField>
+
+<ParamField path="twitterHandle" type="text">
+  Twitter handle for attribution (nullable)
+</ParamField>
+
+<ParamField path="amountPaid" type="decimal(10,2)">
+  Purchase amount (nullable)
+</ParamField>
+
+<ParamField path="currency" type="text">
+  Currency code (nullable)
+</ParamField>
+
+<ParamField path="createdAt" type="timestamp" default="now()">
+  Purchase timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="timestamp">
+  Last update timestamp
+</ParamField>
+
+**Indexes:**
+- Unique index on `stripeSessionId`
+
+## Relations Overview
+
+From `src/database/schema.ts:186-240`:
+
+```typescript
+// User relations
+export const userRelations = relations(user, ({ many }) => ({
+  sessions: many(session),
+  accounts: many(account)
+}))
+
+// Session relations
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, { fields: [session.userId], references: [user.id] })
+}))
+
+// Account relations
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, { fields: [account.userId], references: [user.id] })
+}))
+
+// Customer relations
+export const customerRelations = relations(customer, ({ one, many }) => ({
+  user: one(user, { fields: [customer.userId], references: [user.id] }),
+  subscriptions: many(subscription),
+  payments: many(payment)
+}))
+
+// Subscription relations
+export const subscriptionRelations = relations(subscription, ({ one, many }) => ({
+  user: one(user, { fields: [subscription.userId], references: [user.id] }),
+  customer: one(customer, { fields: [subscription.customerId], references: [customer.id] }),
+  payments: many(payment)
+}))
+
+// Payment relations
+export const paymentRelations = relations(payment, ({ one }) => ({
+  user: one(user, { fields: [payment.userId], references: [user.id] }),
+  customer: one(customer, { fields: [payment.customerId], references: [customer.id] }),
+  subscription: one(subscription, { fields: [payment.subscriptionId], references: [subscription.id] })
+}))
+```
+
+## Migrations
+
+Generate and run migrations using Drizzle Kit:
+
+```bash
+# Generate migration from schema changes
+bun run generate-migration
+
+# Run migrations locally
+bun run migrate:local
+
+# Run migrations in production
+bun run migrate
+```
+
+Migrations are stored in the `migrations/` directory.
+
+## Type Safety
+
+Drizzle provides full TypeScript types for all tables:
+
+```typescript
+import { db } from '@/database'
+import { user, subscription } from '@/database/schema'
+import { eq } from 'drizzle-orm'
+
+// Type-safe queries
+const users = await db.select().from(user)
+const activeSubscriptions = await db
+  .select()
+  .from(subscription)
+  .where(eq(subscription.status, 'active'))
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Examples" icon="code" href="/api/database/queries">
+    Common database query patterns
+  </Card>
+  <Card title="Authentication" icon="shield" href="/api/auth/overview">
+    Using auth-related tables
+  </Card>
+  <Card title="Payments" icon="credit-card" href="/api/payments/checkout">
+    Working with payment tables
+  </Card>
+</CardGroup>

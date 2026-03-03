@@ -1,0 +1,523 @@
+---
+title: Internationalization
+description: Multi-language support with next-intl for Server and Client Components
+---
+
+ShipFree is designed with internationalization (i18n) in mind, though the full next-intl integration is optional. The architecture supports multiple languages through locale-based routing and translation management.
+
+<Note>
+  While the boilerplate includes the structure for i18n, you can choose to implement it based on your needs. The default setup supports English, French, and Spanish.
+</Note>
+
+## Supported Languages
+
+<CardGroup cols={3}>
+  <Card title="English" icon="flag-usa">
+    Default language (en)
+  </Card>
+  <Card title="French" icon="flag">
+    French translations (fr)
+  </Card>
+  <Card title="Spanish" icon="flag">
+    Spanish translations (es)
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+ShipFree uses locale-based routing where all pages are under a `[locale]` dynamic segment:
+
+```
+src/app/
+└── [locale]/          # Dynamic locale segment
+    ├── (auth)/        # Authentication pages
+    ├── (main)/        # Main app pages
+    └── (site)/        # Marketing pages
+```
+
+<Info>
+  The locale is extracted from the URL path (e.g., `/en/dashboard`, `/fr/dashboard`, `/es/dashboard`).
+</Info>
+
+## Configuration
+
+When implementing next-intl, you'll typically have these configuration files:
+
+### Routing Configuration
+
+```typescript i18n/routing.ts
+import { defineRouting } from 'next-intl/routing'
+import { createNavigation } from 'next-intl/navigation'
+
+export const routing = defineRouting({
+  // Supported locales
+  locales: ['en', 'fr', 'es'],
+  
+  // Default locale
+  defaultLocale: 'en',
+  
+  // Locale detection
+  localeDetection: true,
+  
+  // Locale prefix strategy
+  localePrefix: 'always', // or 'as-needed', 'never'
+})
+
+export const { Link, redirect, usePathname, useRouter } = createNavigation(routing)
+```
+
+### Request Configuration
+
+```typescript i18n/request.ts
+import { getRequestConfig } from 'next-intl/server'
+import { routing } from './routing'
+
+export default getRequestConfig(async ({ requestLocale }) => {
+  let locale = await requestLocale
+  
+  // Validate locale
+  if (!locale || !routing.locales.includes(locale as any)) {
+    locale = routing.defaultLocale
+  }
+  
+  return {
+    locale,
+    messages: (await import(`../messages/${locale}.json`)).default,
+  }
+})
+```
+
+## Translation Files
+
+Translations are stored as JSON files in `src/messages/`:
+
+<Tabs>
+  <Tab title="English (en.json)">
+    ```json src/messages/en.json
+    {
+      "common": {
+        "welcome": "Welcome",
+        "getStarted": "Get Started",
+        "learnMore": "Learn More"
+      },
+      "auth": {
+        "login": "Log In",
+        "signup": "Sign Up",
+        "logout": "Log Out",
+        "email": "Email Address",
+        "password": "Password"
+      },
+      "dashboard": {
+        "title": "Dashboard",
+        "overview": "Overview",
+        "settings": "Settings"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="French (fr.json)">
+    ```json src/messages/fr.json
+    {
+      "common": {
+        "welcome": "Bienvenue",
+        "getStarted": "Commencer",
+        "learnMore": "En savoir plus"
+      },
+      "auth": {
+        "login": "Se connecter",
+        "signup": "S'inscrire",
+        "logout": "Se déconnecter",
+        "email": "Adresse e-mail",
+        "password": "Mot de passe"
+      },
+      "dashboard": {
+        "title": "Tableau de bord",
+        "overview": "Aperçu",
+        "settings": "Paramètres"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Spanish (es.json)">
+    ```json src/messages/es.json
+    {
+      "common": {
+        "welcome": "Bienvenido",
+        "getStarted": "Comenzar",
+        "learnMore": "Saber más"
+      },
+      "auth": {
+        "login": "Iniciar sesión",
+        "signup": "Registrarse",
+        "logout": "Cerrar sesión",
+        "email": "Correo electrónico",
+        "password": "Contraseña"
+      },
+      "dashboard": {
+        "title": "Panel",
+        "overview": "Resumen",
+        "settings": "Configuración"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Using Translations
+
+### In Server Components
+
+```tsx src/app/[locale]/(site)/page.tsx
+import { getTranslations } from 'next-intl/server'
+
+export default async function HomePage() {
+  const t = await getTranslations('common')
+  
+  return (
+    <div>
+      <h1>{t('welcome')}</h1>
+      <button>{t('getStarted')}</button>
+    </div>
+  )
+}
+```
+
+<Tip>
+  In Server Components, use `getTranslations` from `next-intl/server` with `await`.
+</Tip>
+
+### In Client Components
+
+```tsx src/components/navbar.tsx
+'use client'
+
+import { useTranslations } from 'next-intl'
+
+export function Navbar() {
+  const t = useTranslations('common')
+  
+  return (
+    <nav>
+      <a href="/">{t('home')}</a>
+      <a href="/about">{t('about')}</a>
+      <a href="/contact">{t('contact')}</a>
+    </nav>
+  )
+}
+```
+
+<Info>
+  In Client Components, use the `useTranslations` hook without `await`.
+</Info>
+
+### With Parameters
+
+```tsx
+import { useTranslations } from 'next-intl'
+
+export function Greeting({ name }: { name: string }) {
+  const t = useTranslations('greetings')
+  
+  return <p>{t('hello', { name })}</p>
+}
+```
+
+```json src/messages/en.json
+{
+  "greetings": {
+    "hello": "Hello, {name}!"
+  }
+}
+```
+
+### Rich Text & Formatting
+
+```tsx
+import { useTranslations } from 'next-intl'
+
+export function RichTextExample() {
+  const t = useTranslations('content')
+  
+  return (
+    <div>
+      {t.rich('description', {
+        strong: (chunks) => <strong>{chunks}</strong>,
+        link: (chunks) => <a href="/learn">{chunks}</a>,
+      })}
+    </div>
+  )
+}
+```
+
+```json src/messages/en.json
+{
+  "content": {
+    "description": "This is <strong>important</strong>. <link>Learn more</link>"
+  }
+}
+```
+
+## Locale-Aware Navigation
+
+### Using Link Component
+
+```tsx
+import { Link } from '@/i18n/routing'
+
+export function Navigation() {
+  return (
+    <nav>
+      <Link href="/dashboard">Dashboard</Link>
+      <Link href="/settings">Settings</Link>
+    </nav>
+  )
+}
+```
+
+<Note>
+  The `Link` component from `@/i18n/routing` automatically prefixes URLs with the current locale.
+</Note>
+
+### Programmatic Navigation
+
+```tsx
+'use client'
+
+import { useRouter } from '@/i18n/routing'
+
+export function NavigateButton() {
+  const router = useRouter()
+  
+  const handleClick = () => {
+    router.push('/dashboard')
+  }
+  
+  return <button onClick={handleClick}>Go to Dashboard</button>
+}
+```
+
+### Locale Switcher
+
+```tsx
+'use client'
+
+import { useLocale } from 'next-intl'
+import { useRouter, usePathname } from '@/i18n/routing'
+
+export function LocaleSwitcher() {
+  const locale = useLocale()
+  const router = useRouter()
+  const pathname = usePathname()
+  
+  const changeLocale = (newLocale: string) => {
+    router.replace(pathname, { locale: newLocale })
+  }
+  
+  return (
+    <select value={locale} onChange={(e) => changeLocale(e.target.value)}>
+      <option value="en">English</option>
+      <option value="fr">Français</option>
+      <option value="es">Español</option>
+    </select>
+  )
+}
+```
+
+## Metadata & SEO
+
+```tsx src/app/[locale]/(site)/layout.tsx
+import { getTranslations } from 'next-intl/server'
+
+export async function generateMetadata({ 
+  params: { locale } 
+}: { 
+  params: { locale: string } 
+}) {
+  const t = await getTranslations({ locale, namespace: 'metadata' })
+  
+  return {
+    title: t('title'),
+    description: t('description'),
+  }
+}
+```
+
+## Date & Number Formatting
+
+### Dates
+
+```tsx
+import { useFormatter } from 'next-intl'
+
+export function DateDisplay({ date }: { date: Date }) {
+  const format = useFormatter()
+  
+  return (
+    <time dateTime={date.toISOString()}>
+      {format.dateTime(date, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })}
+    </time>
+  )
+}
+```
+
+### Numbers & Currency
+
+```tsx
+import { useFormatter } from 'next-intl'
+
+export function PriceDisplay({ amount }: { amount: number }) {
+  const format = useFormatter()
+  
+  return (
+    <span>
+      {format.number(amount, {
+        style: 'currency',
+        currency: 'USD',
+      })}
+    </span>
+  )
+}
+```
+
+## Adding a New Language
+
+<Steps>
+  <Step title="Create Translation File">
+    Add a new JSON file in `src/messages/` (e.g., `de.json` for German):
+    
+    ```json src/messages/de.json
+    {
+      "common": {
+        "welcome": "Willkommen",
+        "getStarted": "Loslegen"
+      }
+    }
+    ```
+  </Step>
+  <Step title="Update Routing Config">
+    Add the locale to your routing configuration:
+    
+    ```typescript i18n/routing.ts
+    export const routing = defineRouting({
+      locales: ['en', 'fr', 'es', 'de'], // Added 'de'
+      defaultLocale: 'en',
+    })
+    ```
+  </Step>
+  <Step title="Update Locale Switcher">
+    Add the new language option to your locale switcher component.
+  </Step>
+</Steps>
+
+## Next.js Middleware
+
+Configure middleware to handle locale detection:
+
+```typescript middleware.ts
+import createMiddleware from 'next-intl/middleware'
+import { routing } from './i18n/routing'
+
+export default createMiddleware(routing)
+
+export const config = {
+  // Match all pathnames except for
+  // - /api routes
+  // - /_next (Next.js internals)
+  // - /static files
+  matcher: ['/((?!api|_next|.*\\..*).*)'],
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Namespace Keys" icon="folder-tree">
+    Organize translations by feature or page for easier maintenance
+  </Card>
+  <Card title="Use TypeScript" icon="shield-check">
+    Generate types from translation files for autocomplete
+  </Card>
+  <Card title="Pluralization" icon="list-ol">
+    Use next-intl's pluralization features for count-based text
+  </Card>
+  <Card title="SEO Optimization" icon="magnifying-glass">
+    Set proper `lang` attribute and hreflang tags for each locale
+  </Card>
+</CardGroup>
+
+## Translation Keys Type Safety
+
+Generate TypeScript types from your translation files:
+
+```typescript
+// Type-safe translations
+const t = useTranslations('auth')
+t('login')    // ✅ Valid
+// t('invalid') // ❌ TypeScript error
+```
+
+## Environment Variables
+
+```bash .env
+NEXT_PUBLIC_DEFAULT_LOCALE=en
+NEXT_PUBLIC_SUPPORTED_LOCALES=en,fr,es
+```
+
+## Common Patterns
+
+### Conditional Rendering
+
+```tsx
+import { useLocale } from 'next-intl'
+
+export function FeatureFlag() {
+  const locale = useLocale()
+  
+  // Show feature only for certain locales
+  if (locale === 'en') {
+    return <div>English-only feature</div>
+  }
+  
+  return null
+}
+```
+
+### Server Actions
+
+```typescript src/app/actions/user.ts
+'use server'
+
+import { getTranslations } from 'next-intl/server'
+
+export async function updateProfile(locale: string, data: FormData) {
+  const t = await getTranslations({ locale, namespace: 'messages' })
+  
+  try {
+    // Update logic...
+    return { success: true, message: t('updateSuccess') }
+  } catch (error) {
+    return { success: false, message: t('updateError') }
+  }
+}
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="next-intl Docs" icon="book" href="https://next-intl-docs.vercel.app">
+    Official next-intl documentation
+  </Card>
+  <Card title="Routing Guide" icon="route" href="https://next-intl-docs.vercel.app/docs/routing">
+    Learn about locale-based routing
+  </Card>
+  <Card title="Formatting" icon="calendar" href="https://next-intl-docs.vercel.app/docs/usage/dates-times">
+    Date, time, and number formatting
+  </Card>
+  <Card title="Best Practices" icon="lightbulb" href="https://next-intl-docs.vercel.app/docs/workflows/linting">
+    i18n best practices and workflows
+  </Card>
+</CardGroup>

@@ -1,0 +1,489 @@
+---
+title: Storage
+description: Cloudflare R2 integration for scalable file storage with public and private buckets
+---
+
+ShipFree includes built-in integration with **Cloudflare R2** for object storage, providing S3-compatible storage without egress fees. The storage client supports both public and private buckets with signed URL generation.
+
+## Why Cloudflare R2?
+
+<CardGroup cols={2}>
+  <Card title="Zero Egress Fees" icon="dollar-sign">
+    No charges for data transfer out
+  </Card>
+  <Card title="S3 Compatible" icon="aws">
+    Works with existing S3 tools and libraries
+  </Card>
+  <Card title="Global Performance" icon="globe">
+    Cloudflare's global network for fast access
+  </Card>
+  <Card title="Cost Effective" icon="piggy-bank">
+    Significantly cheaper than traditional cloud storage
+  </Card>
+</CardGroup>
+
+## Storage Client
+
+The storage client is implemented in `src/lib/storage.ts`:
+
+```typescript src/lib/storage.ts
+import { AwsClient } from 'aws4fetch'
+import { env } from '@/config/env'
+
+class StorageClient {
+  private client: AwsClient
+  
+  constructor() {
+    this.client = new AwsClient({
+      accessKeyId: env.R2_ACCESS_KEY_ID || '',
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY || '',
+      service: 's3',
+      region: 'auto',
+    })
+  }
+  
+  async upload({ key, body, opts, bucket = 'public' }) {
+    // Upload implementation
+  }
+  
+  async delete({ key, bucket = 'public' }) {
+    // Delete implementation
+  }
+  
+  async getSignedUrl({ key, method, bucket, expiresIn }) {
+    // Signed URL generation
+  }
+}
+
+export const storage = new StorageClient()
+```
+
+## Configuration
+
+<Steps>
+  <Step title="Create R2 Buckets">
+    Create public and private buckets in your Cloudflare dashboard:
+    - **Public bucket**: For publicly accessible files (images, assets)
+    - **Private bucket**: For user uploads and sensitive files
+  </Step>
+  <Step title="Generate API Tokens">
+    Create an R2 API token with read/write permissions.
+  </Step>
+  <Step title="Set Environment Variables">
+    ```bash .env
+    CLOUDFLARE_ACCOUNT_ID=your_account_id
+    R2_ACCESS_KEY_ID=your_access_key
+    R2_SECRET_ACCESS_KEY=your_secret_key
+    R2_PUBLIC_BUCKET=your-public-bucket
+    R2_PRIVATE_BUCKET=your-private-bucket
+    R2_BUCKET_URL=https://your-bucket.your-domain.com
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  You can get your Cloudflare Account ID from the R2 dashboard URL: `https://dash.cloudflare.com/{account_id}/r2`
+</Info>
+
+## Uploading Files
+
+### Upload from File
+
+```typescript
+import { storage } from '@/lib/storage'
+
+// Upload to public bucket
+const result = await storage.upload({
+  key: 'avatars/user-123.jpg',
+  body: fileBlob,
+  bucket: 'public',
+  opts: {
+    contentType: 'image/jpeg',
+  },
+})
+
+console.log(result.url) // https://your-bucket.com/avatars/user-123.jpg
+```
+
+### Upload from Base64
+
+```typescript src/lib/storage.ts
+import { storage } from '@/lib/storage'
+
+// The storage client automatically detects base64 strings
+const result = await storage.upload({
+  key: 'images/photo.png',
+  body: 'data:image/png;base64,iVBORw0KGgoAAAANS...',
+  bucket: 'public',
+  opts: {
+    contentType: 'image/png',
+  },
+})
+```
+
+### Upload from URL
+
+```typescript src/lib/storage.ts
+import { storage } from '@/lib/storage'
+
+// Download and upload an image from a URL
+const result = await storage.upload({
+  key: 'external/downloaded-image.jpg',
+  body: 'https://example.com/image.jpg',
+  bucket: 'public',
+  opts: {
+    contentType: 'image/jpeg',
+    width: 800,  // Resize on the fly
+    height: 600,
+  },
+})
+```
+
+<Tip>
+  The storage client uses [wsrv.nl](https://wsrv.nl) for on-the-fly image resizing when uploading from URLs.
+</Tip>
+
+## Bucket Types
+
+### Public Bucket
+
+Use for publicly accessible files:
+
+```typescript
+import { storage } from '@/lib/storage'
+
+await storage.upload({
+  key: 'public/logo.png',
+  body: logoFile,
+  bucket: 'public', // Files are publicly accessible
+})
+```
+
+<Note>
+  Files in the public bucket can be accessed directly via their URL without authentication.
+</Note>
+
+### Private Bucket
+
+Use for sensitive user data:
+
+```typescript
+import { storage } from '@/lib/storage'
+
+await storage.upload({
+  key: 'users/user-123/document.pdf',
+  body: documentFile,
+  bucket: 'private', // Requires signed URLs to access
+})
+```
+
+<Warning>
+  Files in private buckets cannot be accessed directly. Use signed URLs for temporary access.
+</Warning>
+
+## Signed URLs
+
+Generate temporary URLs for secure file access:
+
+### Upload URLs
+
+```typescript
+import { storage } from '@/lib/storage'
+
+// Generate a signed URL for client-side uploads
+const uploadUrl = await storage.getSignedUploadUrl({
+  key: 'uploads/file-123.pdf',
+  bucket: 'private',
+  expiresIn: 600, // 10 minutes
+})
+
+// Client can now upload directly to this URL
+```
+
+### Download URLs
+
+```typescript
+import { storage } from '@/lib/storage'
+
+// Generate a signed URL for downloading private files
+const downloadUrl = await storage.getSignedDownloadUrl({
+  key: 'users/user-123/report.pdf',
+  bucket: 'private',
+  expiresIn: 3600, // 1 hour
+})
+
+// Share this URL with authorized users
+```
+
+## Deleting Files
+
+```typescript
+import { storage } from '@/lib/storage'
+
+await storage.delete({
+  key: 'temp/old-file.jpg',
+  bucket: 'public',
+})
+```
+
+## Server Action Example
+
+Implement file upload in a Server Action:
+
+```typescript src/app/actions/upload.ts
+'use server'
+
+import { storage } from '@/lib/storage'
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
+
+export async function uploadAvatar(formData: FormData) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+  
+  if (!session) {
+    throw new Error('Unauthorized')
+  }
+  
+  const file = formData.get('avatar') as File
+  
+  if (!file) {
+    throw new Error('No file provided')
+  }
+  
+  // Convert to buffer
+  const bytes = await file.arrayBuffer()
+  const buffer = Buffer.from(bytes)
+  
+  // Upload to R2
+  const result = await storage.upload({
+    key: `avatars/${session.user.id}.jpg`,
+    body: buffer,
+    bucket: 'public',
+    opts: {
+      contentType: file.type,
+    },
+  })
+  
+  return { url: result.url }
+}
+```
+
+## Client Component Example
+
+```tsx src/components/avatar-upload.tsx
+'use client'
+
+import { useState } from 'react'
+import { uploadAvatar } from '@/app/actions/upload'
+
+export function AvatarUpload() {
+  const [uploading, setUploading] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    setUploading(true)
+    
+    const formData = new FormData()
+    formData.append('avatar', file)
+    
+    try {
+      const result = await uploadAvatar(formData)
+      setAvatarUrl(result.url)
+    } catch (error) {
+      console.error('Upload failed:', error)
+    } finally {
+      setUploading(false)
+    }
+  }
+  
+  return (
+    <div>
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleUpload}
+        disabled={uploading}
+      />
+      {avatarUrl && <img src={avatarUrl} alt="Avatar" />}
+    </div>
+  )
+}
+```
+
+## API Route Example
+
+```typescript src/app/api/upload/route.ts
+import { storage } from '@/lib/storage'
+import { NextRequest } from 'next/server'
+
+export async function POST(req: NextRequest) {
+  const formData = await req.formData()
+  const file = formData.get('file') as File
+  
+  if (!file) {
+    return Response.json({ error: 'No file provided' }, { status: 400 })
+  }
+  
+  const bytes = await file.arrayBuffer()
+  const buffer = Buffer.from(bytes)
+  
+  const result = await storage.upload({
+    key: `uploads/${Date.now()}-${file.name}`,
+    body: buffer,
+    bucket: 'public',
+    opts: {
+      contentType: file.type,
+    },
+  })
+  
+  return Response.json({ url: result.url })
+}
+```
+
+## Utility Functions
+
+The storage module includes helpful utilities:
+
+### Check if URL is Stored
+
+```typescript src/lib/storage.ts
+import { isStored } from '@/lib/storage'
+
+const url = 'https://your-bucket.com/image.jpg'
+
+if (isStored(url)) {
+  console.log('This file is stored in R2')
+}
+```
+
+### Check if Image is Not Hosted
+
+```typescript src/lib/storage.ts
+import { isNotHostedImage } from '@/lib/storage'
+
+const imageString = 'data:image/png;base64,...'
+
+if (isNotHostedImage(imageString)) {
+  // Upload to R2 before saving
+  const result = await storage.upload({
+    key: 'images/new-image.png',
+    body: imageString,
+    bucket: 'public',
+  })
+}
+```
+
+## Image Resizing
+
+When uploading from URLs, you can resize images on the fly:
+
+```typescript
+import { storage } from '@/lib/storage'
+
+await storage.upload({
+  key: 'thumbnails/image.jpg',
+  body: 'https://example.com/large-image.jpg',
+  bucket: 'public',
+  opts: {
+    width: 400,
+    height: 300,
+    contentType: 'image/jpeg',
+  },
+})
+```
+
+<Info>
+  The storage client uses a proxy service for image transformation. The original image is fetched, resized, and then uploaded to R2.
+</Info>
+
+## Error Handling
+
+```typescript
+import { storage } from '@/lib/storage'
+
+try {
+  const result = await storage.upload({
+    key: 'files/document.pdf',
+    body: fileBuffer,
+    bucket: 'public',
+  })
+  
+  console.log('Upload successful:', result.url)
+} catch (error) {
+  console.error('Upload failed:', error)
+  // Handle error (retry, show message to user, etc.)
+}
+```
+
+## Custom Headers
+
+Add custom headers to uploads:
+
+```typescript
+await storage.upload({
+  key: 'files/document.pdf',
+  body: fileBuffer,
+  bucket: 'public',
+  opts: {
+    contentType: 'application/pdf',
+    headers: {
+      'Cache-Control': 'max-age=31536000',
+      'Content-Disposition': 'attachment; filename="document.pdf"',
+    },
+  },
+})
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Descriptive Keys" icon="tag">
+    Use clear, hierarchical paths like `avatars/user-123.jpg`
+  </Card>
+  <Card title="Set Content Types" icon="file-code">
+    Always specify the correct MIME type for uploads
+  </Card>
+  <Card title="Validate File Sizes" icon="scale-balanced">
+    Check file sizes before uploading to prevent abuse
+  </Card>
+  <Card title="Clean Up Unused Files" icon="trash">
+    Implement cleanup jobs to remove orphaned files
+  </Card>
+</CardGroup>
+
+## Environment Variables
+
+```bash .env
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key_id
+R2_SECRET_ACCESS_KEY=your_secret_access_key
+R2_PUBLIC_BUCKET=your-public-bucket-name
+R2_PRIVATE_BUCKET=your-private-bucket-name
+R2_BUCKET_URL=https://pub-xxx.r2.dev
+```
+
+<Tip>
+  You can set up a custom domain for your R2 bucket in Cloudflare to use branded URLs instead of the default `r2.dev` domain.
+</Tip>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare R2 Docs" icon="cloud" href="https://developers.cloudflare.com/r2/">
+    Official Cloudflare R2 documentation
+  </Card>
+  <Card title="S3 API Compatibility" icon="aws" href="https://developers.cloudflare.com/r2/api/s3/">
+    Learn about S3-compatible API features
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="https://developers.cloudflare.com/r2/buckets/public-buckets/">
+    Set up custom domains for R2 buckets
+  </Card>
+  <Card title="Access Control" icon="lock" href="https://developers.cloudflare.com/r2/api/s3/tokens/">
+    Managing access tokens and permissions
+  </Card>
+</CardGroup>

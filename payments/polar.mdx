@@ -1,0 +1,389 @@
+---
+title: Polar Integration
+description: Set up and configure Polar payments in ShipFree
+---
+
+Polar is a payment platform built specifically for developers selling to developers. It offers GitHub integration, simple pricing, and a developer-friendly experience.
+
+## Prerequisites
+
+- A Polar account ([sign up here](https://polar.sh))
+- Your ShipFree application running locally or deployed
+- (Optional) A GitHub repository for integration
+
+## Setup Instructions
+
+### Step 1: Get Your API Keys
+
+1. Log in to [Polar](https://polar.sh)
+2. Navigate to **Settings** → **API**
+3. Create a new **Access Token**
+4. Copy the access token (starts with `polar_`)
+5. Note your **Organization ID**
+
+### Step 2: Create Products
+
+Polar uses a product-based pricing model.
+
+1. Go to **Products** in your Polar dashboard
+2. Click **Create Product**
+3. For each plan (Starter, Pro, Enterprise):
+   - Set the product name
+   - Set the description
+   - Configure pricing:
+     - **Price**: Amount in USD
+     - **Billing interval**: Monthly or Yearly
+     - **Recurring**: Yes for subscriptions
+   - Set the product visibility
+   - Save and copy the **Product ID**
+
+### Step 3: Configure Environment Variables
+
+Add these variables to your `.env` file:
+
+```bash
+# Payment Provider Selection
+PAYMENT_PROVIDER=polar
+
+# Polar Access Token (server-side)
+POLAR_ACCESS_TOKEN=polar_your_access_token_here
+
+# Polar Webhook Secret (from Step 4)
+POLAR_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Polar Organization ID
+POLAR_ORGANIZATION_ID=your_org_id
+
+# Environment (sandbox or production)
+POLAR_ENVIRONMENT=sandbox  # Use 'production' for live
+
+# Polar Product IDs (client-side, for display)
+NEXT_PUBLIC_POLAR_PRODUCT_STARTER_MONTHLY=prod_starter_monthly_id
+NEXT_PUBLIC_POLAR_PRODUCT_PRO_MONTHLY=prod_pro_monthly_id
+NEXT_PUBLIC_POLAR_PRODUCT_ENTERPRISE_MONTHLY=prod_enterprise_monthly_id
+```
+
+<Info>
+Polar currently focuses on monthly billing. If you need yearly billing, create separate products for annual plans.
+</Info>
+
+### Step 4: Set Up Webhooks
+
+Polar sends webhooks to notify your application about subscription and payment events.
+
+#### For Local Development
+
+Use a tool like [ngrok](https://ngrok.com) to expose your local server:
+
+1. Install ngrok:
+   ```bash
+   # macOS
+   brew install ngrok/ngrok/ngrok
+   
+   # Or download from https://ngrok.com/download
+   ```
+
+2. Start your development server:
+   ```bash
+   bun dev
+   ```
+
+3. In another terminal, start ngrok:
+   ```bash
+   ngrok http 3000
+   ```
+
+4. Copy the HTTPS forwarding URL (e.g., `https://abc123.ngrok.io`)
+
+5. In Polar dashboard, go to **Settings** → **Webhooks**
+
+6. Add webhook endpoint:
+   - URL: `https://abc123.ngrok.io/api/webhooks/payments`
+   - Events: Select all subscription and payment events
+
+7. Save the webhook secret to your `.env`
+
+#### For Production
+
+1. Go to **Settings** → **Webhooks** in Polar dashboard
+2. Click **Add Endpoint**
+3. Set the endpoint URL: `https://yourdomain.com/api/webhooks/payments`
+4. Select events to listen for:
+   - `subscription.created`
+   - `subscription.updated`
+   - `subscription.canceled`
+   - `order.paid`
+   - `customer.created`
+   - `customer.updated`
+
+5. Click **Create**
+6. Copy the **Webhook Secret** and add it to your production environment variables
+
+## Testing in Development
+
+### Sandbox Mode
+
+Polar provides a sandbox environment for testing. Set `POLAR_ENVIRONMENT=sandbox` in your `.env`.
+
+### Test Checkout Flow
+
+1. Start your development server and ngrok:
+   ```bash
+   bun dev
+   # In another terminal:
+   ngrok http 3000
+   ```
+
+2. Configure webhook URL in Polar dashboard with your ngrok URL
+
+3. Navigate to your pricing page
+
+4. Click on a plan to create a checkout session
+
+5. Complete the checkout in sandbox mode
+
+6. Verify webhook events are received in your application logs
+
+### Testing Subscriptions
+
+Polar provides test mode for subscriptions:
+
+```typescript
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+const adapter = getPaymentAdapter()
+
+// Create a checkout session
+const checkout = await adapter.createCheckout({
+  plan: 'pro',
+  userId: 'user_123',
+  email: 'test@example.com',
+  successUrl: 'http://localhost:3000/dashboard?checkout=success',
+  cancelUrl: 'http://localhost:3000/pricing',
+})
+
+// Redirect to checkout.url
+console.log('Checkout URL:', checkout.url)
+```
+
+## Polar Implementation Details
+
+The Polar adapter is implemented in `src/lib/payments/providers/polar.ts`.
+
+### Key Features
+
+#### Checkout Sessions
+Creates Polar checkout sessions with:
+- Product-based pricing
+- Customer metadata (userId, plan)
+- Trial periods (if configured)
+- Custom success URLs
+
+```typescript:src/lib/payments/providers/polar.ts
+async createCheckout(options: CheckoutOptions): Promise<CheckoutResult> {
+  const checkout = await this.polar.checkouts.create({
+    products: [price.productId],
+    successUrl: successUrl || paymentConfig.providers.successUrl,
+    customerEmail: email,
+    customerMetadata: {
+      userId,
+      plan,
+      provider: 'polar',
+    },
+    ...(trialDays && trialDays > 0 && price.type === 'recurring' && {
+      subscriptionTrialDays: trialDays,
+    }),
+  })
+
+  return {
+    url: checkout.url,
+    sessionId: checkout.id,
+  }
+}
+```
+
+#### Customer Management
+
+Polar creates customers automatically during checkout. The adapter handles:
+- Customer creation during checkout flow
+- Linking customers to user records
+- Storing customer metadata
+
+<Note>
+Unlike Stripe, Polar doesn't require explicit customer creation before checkout. Customers are created automatically when they complete a purchase.
+</Note>
+
+#### Subscription Handling
+
+The adapter provides:
+- Subscription retrieval by ID
+- Status mapping to unified status format
+- Support for cancellation at period end
+
+```typescript:src/lib/payments/providers/polar.ts
+async getSubscription(providerSubscriptionId: string): Promise<SubscriptionData | null> {
+  const subscription = await this.polar.subscriptions.get({
+    id: providerSubscriptionId,
+  })
+
+  return {
+    id: `polar_${subscription.id}`,
+    providerSubscriptionId: subscription.id,
+    status: this.mapPolarStatus(subscription.status),
+    plan: this.mapProductToPlan(subscription.productId),
+    interval: subscription.recurringInterval === 'month' ? 'month' : 'year',
+    // ...
+  }
+}
+```
+
+#### Webhook Processing
+
+The adapter processes these Polar webhook events:
+- `customer.created`, `customer.updated`
+- `subscription.created`, `subscription.updated`, `subscription.canceled`
+- `order.paid`
+
+Webhook validation:
+```typescript:src/lib/payments/providers/polar.ts
+async validateWebhook(rawBody: string, signature: string): Promise<boolean> {
+  if (!env.POLAR_WEBHOOK_SECRET) {
+    throw new Error('POLAR_WEBHOOK_SECRET is required')
+  }
+  // Polar webhook signature validation
+  // Implementation depends on Polar's signature format
+  return true
+}
+```
+
+### Customer Portal
+
+Polar provides a customer portal for managing subscriptions:
+
+```typescript
+const portal = await adapter.createPortal(
+  'polar_customer_id',
+  'https://yourdomain.com/dashboard'
+)
+// Redirect to portal.url
+```
+
+<Note>
+Polar's customer portal is different from Stripe's. It's hosted at `polar.sh/customer/{customerId}` and provides basic subscription management.
+</Note>
+
+## GitHub Integration
+
+One of Polar's unique features is GitHub integration. You can:
+
+1. Link products to GitHub repositories
+2. Grant repository access based on subscription
+3. Use GitHub Sponsors integration
+4. Display products on your GitHub README
+
+To set up GitHub integration:
+
+1. Go to **Settings** → **GitHub** in Polar dashboard
+2. Connect your GitHub account
+3. Link repositories to products
+4. Configure access permissions
+
+## Going Live
+
+### Pre-Launch Checklist
+
+- [ ] Set `POLAR_ENVIRONMENT=production`
+- [ ] Update `POLAR_ACCESS_TOKEN` with production token
+- [ ] Create live products in Polar dashboard
+- [ ] Update environment variables with live product IDs
+- [ ] Configure production webhook endpoint
+- [ ] Set up webhook secret for production
+- [ ] Test complete checkout flow
+- [ ] Verify GitHub integration (if applicable)
+
+### Security Best Practices
+
+1. **Protect access tokens**: Keep `POLAR_ACCESS_TOKEN` server-side only
+2. **Validate webhooks**: Always verify webhook signatures
+3. **Use HTTPS**: Polar requires HTTPS for production webhooks
+4. **Handle errors**: Don't expose API errors to users
+5. **Monitor webhooks**: Check webhook logs regularly
+
+## Troubleshooting
+
+### Webhook Not Received
+
+1. Verify ngrok is running (for local dev)
+2. Check webhook endpoint is accessible (test with curl)
+3. Review webhook logs in Polar dashboard
+4. Ensure `POLAR_WEBHOOK_SECRET` matches dashboard
+5. Check application logs for errors
+
+### Checkout Session Fails
+
+1. Verify `POLAR_ACCESS_TOKEN` is set correctly
+2. Check that product IDs exist in Polar dashboard
+3. Ensure products are active and published
+4. Review error logs for specific error messages
+5. Check network tab in browser dev tools
+
+### Subscription Not Found
+
+1. Ensure subscription was created successfully
+2. Verify subscription ID format
+3. Check that webhook was processed
+4. Review database for subscription records
+
+### GitHub Integration Issues
+
+1. Verify GitHub account is connected in Polar
+2. Check repository access permissions
+3. Ensure product is linked to correct repository
+4. Review GitHub app installation logs
+
+## Polar vs Other Providers
+
+### When to Choose Polar
+
+✅ **Choose Polar if you:**
+- Are selling developer tools or APIs
+- Want GitHub integration
+- Prefer a developer-first experience
+- Are building open-source monetization
+- Want simpler setup than Stripe
+
+❌ **Avoid Polar if you:**
+- Need extensive payment methods (credit cards, wallets, etc.)
+- Require advanced billing features (metered usage, complex pricing)
+- Need a merchant of record
+- Want maximum payment customization
+
+### Feature Comparison
+
+| Feature | Polar | Stripe | Lemon Squeezy |
+|---------|-------|--------|---------------|
+| GitHub Integration | ✅ | ❌ | ❌ |
+| Developer Focus | ✅ | ⚠️ | ⚠️ |
+| Setup Complexity | Low | High | Medium |
+| Fees | Competitive | 2.9% + $0.30 | 5% + processing |
+| Payment Methods | Basic | Extensive | Good |
+| Customer Portal | Basic | Advanced | Good |
+| Tax Handling | Manual | Manual | Automatic (MoR) |
+
+## Additional Resources
+
+- [Polar Documentation](https://docs.polar.sh)
+- [Polar API Reference](https://api.polar.sh/docs)
+- [Polar SDK (@polar-sh/sdk)](https://www.npmjs.com/package/@polar-sh/sdk)
+- [Polar Discord Community](https://discord.gg/polar)
+
+## Support
+
+For Polar-specific issues:
+- [Polar Support](https://polar.sh/support)
+- [Polar Discord](https://discord.gg/polar)
+- [Polar GitHub](https://github.com/polarsource/polar)
+
+For ShipFree integration issues:
+- Check the source code in `src/lib/payments/providers/polar.ts`
+- Review webhook handling in `src/app/api/webhooks/payments/route.ts`

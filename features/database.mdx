@@ -1,0 +1,524 @@
+---
+title: Database
+description: PostgreSQL database with Drizzle ORM for type-safe queries and migrations
+---
+
+ShipFree uses **PostgreSQL** as its database with **Drizzle ORM** for type-safe queries and schema management. This combination provides excellent developer experience with full TypeScript support.
+
+## Why Drizzle ORM?
+
+Drizzle was chosen for ShipFree because it offers:
+
+<CardGroup cols={2}>
+  <Card title="Type Safety" icon="shield-check">
+    Full TypeScript inference with autocomplete
+  </Card>
+  <Card title="SQL-like API" icon="code">
+    Familiar SQL syntax for developers
+  </Card>
+  <Card title="Performance" icon="gauge-high">
+    Zero runtime overhead, compiles to raw SQL
+  </Card>
+  <Card title="Migrations" icon="database">
+    Automatic migration generation from schema changes
+  </Card>
+</CardGroup>
+
+## Database Connection
+
+The database connection is configured in `src/database/index.ts`:
+
+```typescript src/database/index.ts
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+import * as schema from './schema'
+import { env } from '@/config/env'
+
+const databaseUrl = env.DATABASE_URL
+
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is required. Please set it in your .env file.')
+}
+
+const queryClient = postgres(databaseUrl)
+
+export const db = drizzle({ client: queryClient, schema })
+```
+
+<Info>
+  The database client uses connection pooling automatically for better performance in serverless environments.
+</Info>
+
+## Database Schema
+
+The complete schema is defined in `src/database/schema.ts`:
+
+<Accordion title="View Complete Schema">
+  ```typescript src/database/schema.ts
+  import { relations } from 'drizzle-orm'
+  import { pgTable, text, timestamp, boolean, index, decimal } from 'drizzle-orm/pg-core'
+  
+  // User and Authentication Tables
+  export const user = pgTable('user', {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull().unique(),
+    emailVerified: boolean('email_verified').default(false).notNull(),
+    image: text('image'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+  })
+  
+  export const session = pgTable('session', {
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at').notNull(),
+    token: text('token').notNull().unique(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
+  }, (table) => [index('session_userId_idx').on(table.userId)])
+  
+  export const account = pgTable('account', {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    password: text('password'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
+  }, (table) => [index('account_userId_idx').on(table.userId)])
+  
+  // Payment System Tables
+  export const customer = pgTable('customer', {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    providerCustomerId: text('provider_customer_id').notNull(),
+    email: text('email'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+  }, (table) => [
+    index('customer_userId_idx').on(table.userId),
+    index('customer_provider_customerId_idx').on(table.providerCustomerId),
+  ])
+  
+  export const subscription = pgTable('subscription', {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    customerId: text('customer_id').references(() => customer.id, { onDelete: 'set null' }),
+    provider: text('provider').notNull(),
+    providerSubscriptionId: text('provider_subscription_id').notNull(),
+    status: text('status').notNull(),
+    plan: text('plan').notNull(),
+    interval: text('interval'),
+    amount: decimal('amount', { precision: 10, scale: 2 }),
+    currency: text('currency'),
+    currentPeriodStart: timestamp('current_period_start'),
+    currentPeriodEnd: timestamp('current_period_end'),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+    canceledAt: timestamp('canceled_at'),
+    trialStart: timestamp('trial_start'),
+    trialEnd: timestamp('trial_end'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+  }, (table) => [
+    index('subscription_userId_idx').on(table.userId),
+    index('subscription_status_idx').on(table.status),
+  ])
+  ```
+</Accordion>
+
+## Schema Features
+
+### Auto-updating Timestamps
+
+```typescript src/database/schema.ts
+updatedAt: timestamp('updated_at')
+  .defaultNow()
+  .$onUpdate(() => new Date())
+  .notNull()
+```
+
+<Tip>
+  The `$onUpdate` modifier automatically updates the `updatedAt` field whenever a record is modified.
+</Tip>
+
+### Database Indexes
+
+Indexes improve query performance for frequently accessed fields:
+
+```typescript src/database/schema.ts
+(table) => [
+  index('session_userId_idx').on(table.userId),
+  index('subscription_status_idx').on(table.status),
+]
+```
+
+### Foreign Key Constraints
+
+```typescript src/database/schema.ts
+userId: text('user_id')
+  .notNull()
+  .references(() => user.id, { onDelete: 'cascade' })
+```
+
+<Warning>
+  `onDelete: 'cascade'` means deleting a user will automatically delete all related records (sessions, accounts, etc.).
+</Warning>
+
+## Querying Data
+
+### Basic Queries
+
+<Tabs>
+  <Tab title="Find One">
+    ```typescript
+    import { db } from '@/database'
+    import { user } from '@/database/schema'
+    import { eq } from 'drizzle-orm'
+    
+    const foundUser = await db.query.user.findFirst({
+      where: eq(user.email, 'user@example.com'),
+    })
+    ```
+  </Tab>
+  <Tab title="Find Many">
+    ```typescript
+    import { db } from '@/database'
+    import { subscription } from '@/database/schema'
+    import { eq } from 'drizzle-orm'
+    
+    const activeSubscriptions = await db.query.subscription.findMany({
+      where: eq(subscription.status, 'active'),
+      orderBy: (subscription, { desc }) => [desc(subscription.createdAt)],
+      limit: 10,
+    })
+    ```
+  </Tab>
+  <Tab title="Select Specific Fields">
+    ```typescript
+    import { db } from '@/database'
+    import { user } from '@/database/schema'
+    
+    const users = await db
+      .select({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      })
+      .from(user)
+    ```
+  </Tab>
+  <Tab title="Complex Where">
+    ```typescript
+    import { db } from '@/database'
+    import { subscription } from '@/database/schema'
+    import { and, eq, gte } from 'drizzle-orm'
+    
+    const recentActive = await db.query.subscription.findMany({
+      where: and(
+        eq(subscription.status, 'active'),
+        gte(subscription.createdAt, new Date('2024-01-01'))
+      ),
+    })
+    ```
+  </Tab>
+</Tabs>
+
+### Relations & Joins
+
+```typescript
+import { db } from '@/database'
+import { user, subscription } from '@/database/schema'
+
+const usersWithSubscriptions = await db.query.user.findMany({
+  with: {
+    subscriptions: true,
+  },
+})
+
+// Access nested data
+usersWithSubscriptions.forEach(user => {
+  console.log(user.name)
+  user.subscriptions.forEach(sub => {
+    console.log(`  - Plan: ${sub.plan}, Status: ${sub.status}`)
+  })
+})
+```
+
+### Inserting Data
+
+<Tabs>
+  <Tab title="Insert One">
+    ```typescript
+    import { db } from '@/database'
+    import { user } from '@/database/schema'
+    
+    const [newUser] = await db
+      .insert(user)
+      .values({
+        id: crypto.randomUUID(),
+        name: 'John Doe',
+        email: 'john@example.com',
+        emailVerified: false,
+      })
+      .returning()
+    ```
+  </Tab>
+  <Tab title="Insert Multiple">
+    ```typescript
+    import { db } from '@/database'
+    import { user } from '@/database/schema'
+    
+    const newUsers = await db
+      .insert(user)
+      .values([
+        { id: '1', name: 'John', email: 'john@example.com', emailVerified: false },
+        { id: '2', name: 'Jane', email: 'jane@example.com', emailVerified: false },
+      ])
+      .returning()
+    ```
+  </Tab>
+  <Tab title="Upsert (On Conflict)">
+    ```typescript
+    import { db } from '@/database'
+    import { customer } from '@/database/schema'
+    
+    const [upsertedCustomer] = await db
+      .insert(customer)
+      .values({
+        id: 'cus_123',
+        userId: 'user_123',
+        provider: 'stripe',
+        providerCustomerId: 'cus_stripe_123',
+      })
+      .onConflictDoUpdate({
+        target: customer.id,
+        set: { providerCustomerId: 'cus_stripe_123' },
+      })
+      .returning()
+    ```
+  </Tab>
+</Tabs>
+
+### Updating Data
+
+```typescript
+import { db } from '@/database'
+import { user } from '@/database/schema'
+import { eq } from 'drizzle-orm'
+
+const [updatedUser] = await db
+  .update(user)
+  .set({ 
+    name: 'John Updated',
+    emailVerified: true,
+  })
+  .where(eq(user.id, userId))
+  .returning()
+```
+
+### Deleting Data
+
+```typescript
+import { db } from '@/database'
+import { session } from '@/database/schema'
+import { lt } from 'drizzle-orm'
+
+// Delete expired sessions
+await db
+  .delete(session)
+  .where(lt(session.expiresAt, new Date()))
+```
+
+## Transactions
+
+Use transactions to ensure data consistency:
+
+```typescript
+import { db } from '@/database'
+import { user, customer } from '@/database/schema'
+
+await db.transaction(async (tx) => {
+  // Create user
+  const [newUser] = await tx
+    .insert(user)
+    .values({
+      id: 'user_123',
+      name: 'John',
+      email: 'john@example.com',
+      emailVerified: false,
+    })
+    .returning()
+  
+  // Create associated customer record
+  await tx
+    .insert(customer)
+    .values({
+      id: 'cus_123',
+      userId: newUser.id,
+      provider: 'stripe',
+      providerCustomerId: 'cus_stripe_123',
+    })
+})
+```
+
+<Note>
+  If any operation in the transaction fails, all changes are rolled back automatically.
+</Note>
+
+## Migrations
+
+<Steps>
+  <Step title="Generate Migration">
+    After modifying `src/database/schema.ts`, generate a migration:
+    
+    ```bash
+    bun run generate-migration
+    ```
+    
+    This creates a new migration file in the `migrations/` directory.
+  </Step>
+  <Step title="Review Migration">
+    Review the generated SQL in `migrations/` to ensure it's correct.
+  </Step>
+  <Step title="Run Migration">
+    Apply the migration to your database:
+    
+    ```bash
+    # Local development
+    bun run migrate:local
+    
+    # Production
+    bun run migrate:prod
+    ```
+  </Step>
+</Steps>
+
+### Migration Configuration
+
+```typescript drizzle.config.ts
+import { defineConfig } from 'drizzle-kit'
+
+export default defineConfig({
+  schema: './src/database/schema.ts',
+  out: './migrations',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+})
+```
+
+## Type Safety
+
+Drizzle provides full TypeScript inference:
+
+```typescript
+import { db } from '@/database'
+
+const users = await db.query.user.findMany()
+
+// TypeScript knows the exact shape of the data
+users.forEach(user => {
+  console.log(user.name)       // ✅ string
+  console.log(user.email)      // ✅ string
+  console.log(user.createdAt)  // ✅ Date
+  // console.log(user.invalid) // ❌ TypeScript error
+})
+```
+
+## Database Utilities
+
+### Query Builder
+
+```typescript
+import { db } from '@/database'
+import { subscription, user } from '@/database/schema'
+import { eq } from 'drizzle-orm'
+
+const results = await db
+  .select({
+    userName: user.name,
+    userEmail: user.email,
+    subscriptionPlan: subscription.plan,
+    subscriptionStatus: subscription.status,
+  })
+  .from(user)
+  .leftJoin(subscription, eq(subscription.userId, user.id))
+  .where(eq(subscription.status, 'active'))
+```
+
+### Aggregations
+
+```typescript
+import { db } from '@/database'
+import { subscription } from '@/database/schema'
+import { count, sum, avg } from 'drizzle-orm'
+
+const stats = await db
+  .select({
+    totalSubscriptions: count(),
+    totalRevenue: sum(subscription.amount),
+    averageAmount: avg(subscription.amount),
+  })
+  .from(subscription)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Indexes" icon="gauge-high">
+    Add indexes to frequently queried fields for better performance
+  </Card>
+  <Card title="Batch Operations" icon="layer-group">
+    Use bulk inserts/updates instead of multiple individual queries
+  </Card>
+  <Card title="Use Transactions" icon="database">
+    Wrap related operations in transactions to maintain consistency
+  </Card>
+  <Card title="Type Everything" icon="shield-check">
+    Leverage TypeScript inference to catch errors at compile time
+  </Card>
+</CardGroup>
+
+## Environment Variables
+
+```bash .env
+DATABASE_URL=postgresql://user:password@localhost:5432/shipfree
+```
+
+<Tip>
+  For local development, you can use Docker to run PostgreSQL:
+  
+  ```bash
+  docker run -d \
+    --name shipfree-postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=shipfree \
+    -p 5432:5432 \
+    postgres:16
+  ```
+</Tip>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Drizzle Docs" icon="book" href="https://orm.drizzle.team/docs">
+    Official Drizzle ORM documentation
+  </Card>
+  <Card title="Query Examples" icon="code" href="https://orm.drizzle.team/docs/select">
+    Learn about advanced queries
+  </Card>
+  <Card title="Migrations Guide" icon="database" href="https://orm.drizzle.team/docs/migrations">
+    Master database migrations
+  </Card>
+  <Card title="PostgreSQL Docs" icon="database" href="https://www.postgresql.org/docs/">
+    PostgreSQL official documentation
+  </Card>
+</CardGroup>

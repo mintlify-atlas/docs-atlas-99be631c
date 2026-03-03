@@ -1,0 +1,421 @@
+---
+title: Adding Other Payment Providers
+description: How to integrate additional payment providers into ShipFree
+---
+
+While ShipFree comes with Stripe, Polar, and Lemon Squeezy support out of the box, you can easily add other payment providers by implementing the `PaymentAdapter` interface.
+
+## Supported Architecture
+
+ShipFree uses an adapter pattern that makes it easy to add new payment providers. All providers implement the same interface, ensuring consistency across your application.
+
+## Adding a New Provider
+
+### Step 1: Implement the PaymentAdapter Interface
+
+Create a new file in `src/lib/payments/providers/` for your provider (e.g., `paddle.ts`, `paypal.ts`, `razorpay.ts`).
+
+Implement the `PaymentAdapter` interface:
+
+```typescript
+import type {
+  PaymentAdapter,
+  CheckoutOptions,
+  CheckoutResult,
+  CustomerData,
+  SubscriptionData,
+  PortalResult,
+  WebhookEvent,
+  WebhookResult,
+} from '../types'
+import type { PaymentProvider } from '@/config/payments'
+
+export class YourProviderAdapter implements PaymentAdapter {
+  public readonly provider: PaymentProvider = 'yourprovider'
+
+  constructor() {
+    // Initialize your provider SDK
+    // Get API keys from environment variables
+  }
+
+  async createCheckout(options: CheckoutOptions): Promise<CheckoutResult> {
+    // Create a checkout session
+    // Return { url: string, sessionId: string }
+  }
+
+  async createCustomer(userId: string, email?: string): Promise<CustomerData> {
+    // Create or retrieve a customer
+    // Return customer data
+  }
+
+  async getSubscription(providerSubscriptionId: string): Promise<SubscriptionData | null> {
+    // Get subscription details
+    // Map provider status to unified status
+  }
+
+  async cancelSubscription(
+    providerSubscriptionId: string,
+    cancelAtPeriodEnd = true
+  ): Promise<void> {
+    // Cancel a subscription
+  }
+
+  async createPortal(customerId: string, returnUrl?: string): Promise<PortalResult> {
+    // Create customer portal session
+    // Return { url: string }
+  }
+
+  async processWebhook(event: WebhookEvent): Promise<WebhookResult> {
+    // Process webhook events
+    // Update customer, subscription, or payment data
+  }
+
+  async validateWebhook(rawBody: string, signature: string): Promise<boolean> {
+    // Validate webhook signature
+    // Return true if valid, false otherwise
+  }
+}
+```
+
+### Step 2: Add Provider Type
+
+Update the `PaymentProvider` type in `src/config/payments.ts`:
+
+```typescript
+export type PaymentProvider = 'stripe' | 'polar' | 'lemonsqueezy' | 'yourprovider'
+```
+
+### Step 3: Register the Adapter
+
+Add your adapter to the payment service in `src/lib/payments/service.ts`:
+
+```typescript
+import { YourProviderAdapter } from './providers/yourprovider'
+
+export function getPaymentAdapter(): PaymentAdapter {
+  if (paymentAdapter) {
+    return paymentAdapter
+  }
+
+  const provider = getActivePaymentProvider()
+
+  switch (provider) {
+    case 'stripe':
+      paymentAdapter = new StripeAdapter()
+      break
+    case 'polar':
+      paymentAdapter = new PolarAdapter()
+      break
+    case 'lemonsqueezy':
+      paymentAdapter = new LemonSqueezyAdapter()
+      break
+    case 'yourprovider':
+      paymentAdapter = new YourProviderAdapter()
+      break
+    default:
+      throw new Error(`Unknown payment provider: ${provider}`)
+  }
+
+  return paymentAdapter
+}
+```
+
+### Step 4: Add Environment Variables
+
+Update `src/config/env.ts` to include your provider's environment variables:
+
+```typescript
+import { createEnv } from '@t3-oss/env-nextjs'
+import { z } from 'zod'
+
+export const env = createEnv({
+  server: {
+    // ... existing vars
+    
+    // Your Provider
+    YOURPROVIDER_API_KEY: z.string().optional(),
+    YOURPROVIDER_WEBHOOK_SECRET: z.string().optional(),
+  },
+  client: {
+    // ... existing vars
+    
+    // Your Provider Product IDs
+    NEXT_PUBLIC_YOURPROVIDER_PRICE_STARTER_MONTHLY: z.string().optional(),
+    NEXT_PUBLIC_YOURPROVIDER_PRICE_PRO_MONTHLY: z.string().optional(),
+    NEXT_PUBLIC_YOURPROVIDER_PRICE_ENTERPRISE_MONTHLY: z.string().optional(),
+  },
+  // ...
+})
+```
+
+Add to `.env.example`:
+
+```bash
+# ----- YOUR PROVIDER -----
+# YOURPROVIDER_API_KEY=your-api-key
+# YOURPROVIDER_WEBHOOK_SECRET=your-webhook-secret
+# NEXT_PUBLIC_YOURPROVIDER_PRICE_STARTER_MONTHLY=price_id
+# NEXT_PUBLIC_YOURPROVIDER_PRICE_PRO_MONTHLY=price_id
+# NEXT_PUBLIC_YOURPROVIDER_PRICE_ENTERPRISE_MONTHLY=price_id
+```
+
+### Step 5: Add Price Configuration
+
+Update `src/config/payments.ts` to include your provider's prices:
+
+```typescript
+export const paymentConfig = {
+  plans: {
+    starter: {
+      name: 'Starter',
+      description: 'Great for small teams',
+      prices: {
+        stripe: [ /* ... */ ],
+        polar: [ /* ... */ ],
+        lemonsqueezy: [ /* ... */ ],
+        yourprovider: [
+          {
+            productId: process.env.NEXT_PUBLIC_YOURPROVIDER_PRICE_STARTER_MONTHLY || '',
+            interval: 'month' as const,
+            amount: 990,
+            currency: 'usd',
+            seatBased: false,
+            trialPeriodDays: 14,
+            type: 'recurring' as const,
+          },
+        ],
+      },
+      features: [ /* ... */ ],
+    },
+    // ... other plans
+  },
+}
+```
+
+### Step 6: Update Webhook Handler
+
+Update `src/app/api/webhooks/payments/route.ts` to handle your provider's webhook signature:
+
+```typescript
+switch (provider) {
+  case 'stripe':
+    signature = headerList.get('stripe-signature') || ''
+    break
+  case 'polar':
+    signature = headerList.get('polar-webhook-signature') || ''
+    break
+  case 'lemonsqueezy':
+    signature = headerList.get('x-signature') || ''
+    break
+  case 'yourprovider':
+    signature = headerList.get('your-signature-header') || ''
+    break
+}
+```
+
+## Example Providers You Could Add
+
+### Paddle
+
+[Paddle](https://paddle.com) is a Merchant of Record similar to Lemon Squeezy.
+
+**Key Features:**
+- Handles global tax compliance
+- Merchant of Record
+- Good for SaaS and digital products
+- Built-in fraud prevention
+
+**SDK:** `@paddle/paddle-node-sdk`
+
+### PayPal
+
+[PayPal](https://developer.paypal.com) is widely recognized and trusted globally.
+
+**Key Features:**
+- High customer trust
+- Global payment methods
+- Subscription support
+- PayPal and credit card payments
+
+**SDK:** `@paypal/checkout-server-sdk`
+
+### Razorpay
+
+[Razorpay](https://razorpay.com) is popular in India and Asia.
+
+**Key Features:**
+- Strong presence in India
+- UPI, wallets, and local payment methods
+- Subscription and recurring billing
+- Lower fees for Indian businesses
+
+**SDK:** `razorpay`
+
+### Chargebee
+
+[Chargebee](https://chargebee.com) is a subscription management platform.
+
+**Key Features:**
+- Advanced subscription management
+- Revenue recognition
+- Dunning management
+- Multiple payment gateway support
+
+**SDK:** `chargebee-typescript`
+
+### Braintree
+
+[Braintree](https://braintreepayments.com) (owned by PayPal) offers flexible payment options.
+
+**Key Features:**
+- PayPal, Venmo, Apple Pay, Google Pay
+- Owned by PayPal (stable)
+- Good international support
+- Recurring billing
+
+**SDK:** `braintree`
+
+## Implementation Reference
+
+Use the existing adapters as reference:
+
+### Stripe Adapter
+`src/lib/payments/providers/stripe.ts`
+- Most complete implementation
+- Shows advanced features (trials, seat-based billing)
+- Comprehensive webhook handling
+
+### Polar Adapter
+`src/lib/payments/providers/polar.ts`
+- Simpler implementation
+- Modern SDK usage
+- Good example of developer-focused provider
+
+### Lemon Squeezy Adapter
+`src/lib/payments/providers/lemonsqueezy.ts`
+- Merchant of Record pattern
+- Custom data handling in checkouts
+- HMAC webhook validation
+
+## Testing Your Adapter
+
+1. **Unit Tests**: Test each method independently
+2. **Integration Tests**: Test full checkout flow
+3. **Webhook Tests**: Use provider's webhook testing tools
+4. **Local Testing**: Use ngrok or similar for webhook delivery
+5. **End-to-End**: Test complete subscription lifecycle
+
+### Example Test
+
+```typescript
+import { YourProviderAdapter } from '@/lib/payments/providers/yourprovider'
+
+describe('YourProviderAdapter', () => {
+  const adapter = new YourProviderAdapter()
+
+  it('creates a checkout session', async () => {
+    const result = await adapter.createCheckout({
+      plan: 'pro',
+      userId: 'user_123',
+      email: 'test@example.com',
+    })
+
+    expect(result.url).toBeDefined()
+    expect(result.sessionId).toBeDefined()
+  })
+
+  it('validates webhook signatures', async () => {
+    const rawBody = '{"event":"test"}'
+    const signature = 'valid_signature'
+
+    const isValid = await adapter.validateWebhook(rawBody, signature)
+    expect(isValid).toBe(true)
+  })
+})
+```
+
+## Common Patterns
+
+### Status Mapping
+
+Most providers have different status values. Map them to the unified format:
+
+```typescript
+private mapStatus(providerStatus: string): SubscriptionData['status'] {
+  switch (providerStatus) {
+    case 'active':
+    case 'live':
+      return 'active'
+    case 'cancelled':
+    case 'canceled':
+      return 'canceled'
+    case 'past_due':
+    case 'overdue':
+      return 'past_due'
+    case 'trialing':
+    case 'trial':
+      return 'trialing'
+    default:
+      return 'incomplete'
+  }
+}
+```
+
+### Error Handling
+
+Wrap provider API calls with proper error handling:
+
+```typescript
+try {
+  const result = await this.providerSdk.createCheckout(params)
+  return { url: result.url, sessionId: result.id }
+} catch (error) {
+  console.error('Provider checkout error:', error)
+  throw new Error('Failed to create checkout session')
+}
+```
+
+### ID Prefixing
+
+Prefix provider IDs to avoid collisions:
+
+```typescript
+return {
+  id: `yourprovider_${subscription.id}`,
+  providerSubscriptionId: subscription.id,
+  // ...
+}
+```
+
+## Best Practices
+
+1. **Follow the Interface**: Strictly implement all methods in `PaymentAdapter`
+2. **Type Safety**: Use TypeScript types from `src/lib/payments/types.ts`
+3. **Error Handling**: Wrap all API calls with try-catch
+4. **Logging**: Log important events and errors
+5. **Documentation**: Document provider-specific quirks
+6. **Testing**: Write tests for all adapter methods
+7. **Environment Variables**: Validate required env vars in constructor
+8. **Webhook Security**: Always validate webhook signatures
+
+## Getting Help
+
+If you're implementing a new provider and need help:
+
+1. Study the existing adapters (especially Stripe)
+2. Check the provider's official documentation
+3. Review the `PaymentAdapter` interface in `src/lib/payments/types.ts`
+4. Test each method independently
+5. Ask for help in the ShipFree community
+
+## Contributing Your Adapter
+
+If you've implemented a new payment provider, consider contributing it back to ShipFree:
+
+1. Ensure it follows the existing patterns
+2. Add comprehensive documentation
+3. Include tests
+4. Update `.env.example`
+5. Submit a pull request to the ShipFree repository
+
+Your contribution will help other developers using the same payment provider!

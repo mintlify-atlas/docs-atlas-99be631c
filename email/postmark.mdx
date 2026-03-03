@@ -1,0 +1,425 @@
+---
+title: 'Postmark'
+description: 'Configure Postmark as your email provider in ShipFree'
+icon: 'envelope'
+---
+
+## Overview
+
+Postmark is a reliable email delivery service focused on transactional emails with industry-leading deliverability. It's a great choice for ShipFree if you need:
+
+- Exceptional deliverability rates (99%+)
+- Detailed delivery analytics
+- Professional support
+- DMARC monitoring and reports
+- Message retention and search
+- Native batch email support
+
+<Info>
+  Postmark is the second provider ShipFree checks during auto-discovery. If Resend isn't configured, Postmark will be used automatically.
+</Info>
+
+## Prerequisites
+
+1. A [Postmark account](https://postmarkapp.com/sign_up)
+2. A verified sender signature or domain
+
+## Setup Instructions
+
+### Step 1: Create a Postmark Account
+
+1. Sign up at [postmarkapp.com](https://postmarkapp.com/sign_up)
+2. Complete the email verification
+3. Create your first server (e.g., "ShipFree Production")
+
+### Step 2: Get Your API Token
+
+1. Navigate to **Servers** in the sidebar
+2. Select your server
+3. Go to the **API Tokens** tab
+4. Copy the **Server API token**
+
+<Warning>
+  Keep your API token secure. Anyone with this token can send emails on your behalf.
+</Warning>
+
+### Step 3: Set Up a Sender Signature
+
+<Tabs>
+  <Tab title="Single Email (Quick Start)">
+    For quick testing, verify a single email address:
+
+    1. Go to **Sender Signatures** in your server
+    2. Click **Add Sender Signature**
+    3. Enter your email address (e.g., `noreply@yourdomain.com`)
+    4. Click **Send Verification Email**
+    5. Check your inbox and click the verification link
+
+    <Info>
+      Single sender signatures are perfect for development but limited to one address. For production, use domain verification.
+    </Info>
+  </Tab>
+
+  <Tab title="Domain (Production)">
+    For production, verify your entire domain:
+
+    1. Go to **Sender Signatures** in your server
+    2. Click **Add Domain**
+    3. Enter your domain (e.g., `yourdomain.com`)
+    4. Add the provided DNS records to your domain:
+       - **DKIM Record** (for authentication)
+       - **Return-Path** (for bounce tracking)
+    5. Wait for DNS propagation (5-30 minutes)
+    6. Click **Verify** in Postmark
+
+    <Tip>
+      Use a subdomain like `mail.yourdomain.com` to isolate email DNS records.
+    </Tip>
+  </Tab>
+</Tabs>
+
+### Step 4: Configure Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# Required
+POSTMARK_API_TOKEN=your-postmark-server-api-token
+
+# Optional - explicitly set Postmark as provider
+EMAIL_PROVIDER=postmark
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Step 5: Install Postmark Package
+
+The Postmark package is already included in ShipFree:
+
+```json
+// package.json (already installed)
+"postmark": "^4.0.5"
+```
+
+If you need to reinstall:
+
+```bash
+bun add postmark
+```
+
+### Step 6: Test Your Configuration
+
+```typescript
+import { sendEmail, getActiveProviderName } from '@/lib/messaging/email';
+
+// Verify Postmark is active
+console.log('Active provider:', getActiveProviderName()); // Should output: 'postmark'
+
+// Send test email
+const result = await sendEmail({
+  to: 'test@example.com',
+  subject: 'Test from ShipFree via Postmark',
+  html: '<h1>Success!</h1><p>Postmark is configured correctly.</p>',
+});
+
+if (result.success) {
+  console.log('Email sent!', result.data);
+} else {
+  console.error('Failed:', result.message);
+}
+```
+
+## Features
+
+### Batch Email Support
+
+Postmark supports native batch sending up to 500 emails per request:
+
+```typescript
+import { sendBatchEmails } from '@/lib/messaging/email';
+
+await sendBatchEmails({
+  emails: [
+    {
+      to: 'user1@example.com',
+      subject: 'Welcome!',
+      html: '<p>Welcome to our app!</p>',
+    },
+    {
+      to: 'user2@example.com', 
+      subject: 'Welcome!',
+      html: '<p>Welcome to our app!</p>',
+    },
+    // Up to 500 emails...
+  ],
+});
+```
+
+### Email Attachments
+
+Send files with your emails:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email';
+import { readFileSync } from 'fs';
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Your Receipt',
+  html: '<p>Thank you for your purchase!</p>',
+  attachments: [
+    {
+      filename: 'receipt.pdf',
+      content: readFileSync('./receipt.pdf'),
+      contentType: 'application/pdf',
+    },
+  ],
+});
+```
+
+<Info>
+  Postmark supports attachments up to 10MB per email. Total email size (including attachments) cannot exceed 10MB.
+</Info>
+
+### Reply-To Headers
+
+```typescript
+await sendEmail({
+  to: 'customer@example.com',
+  subject: 'Support Ticket #1234',
+  html: '<p>Your support request has been received.</p>',
+  replyTo: 'support@yourdomain.com',
+});
+```
+
+### Custom Headers
+
+ShipFree automatically handles list-unsubscribe headers for marketing emails:
+
+```typescript
+await sendEmail({
+  to: 'subscriber@example.com',
+  subject: 'Monthly Newsletter',
+  html: '<p>Check out this month\'s updates!</p>',
+  emailType: 'marketing',
+  includeUnsubscribe: true,
+  unsubscribeInfo: {
+    baseUrl: 'https://yourdomain.com',
+    token: 'subscriber-token',
+    writerId: 'newsletter-id',
+  },
+});
+```
+
+### Plain Text Alternative
+
+Postmark automatically generates plain text from HTML, but you can provide your own:
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Welcome',
+  html: '<h1>Welcome!</h1><p>Glad to have you.</p>',
+  text: 'Welcome! Glad to have you.', // Custom plain text
+});
+```
+
+## Environment Variables Reference
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|----------|
+| `POSTMARK_API_TOKEN` | Yes | Your Postmark server API token | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `EMAIL_PROVIDER` | No | Force Postmark as provider | `postmark` |
+| `DEFAULT_FROM_EMAIL` | No | Default sender email | `noreply@yourdomain.com` |
+| `DEFAULT_FROM_NAME` | No | Default sender name | `Your App Name` |
+
+## Message Streams
+
+Postmark organizes emails into message streams. By default, ShipFree uses the **Transactional** stream, which is perfect for:
+
+- Authentication emails (OTP, password reset)
+- Order confirmations
+- Account notifications
+- System alerts
+
+If you need to send marketing emails or broadcasts, create a separate **Broadcasts** stream in Postmark and configure it separately.
+
+## Development vs. Production
+
+### Development Setup
+
+```bash
+# .env.development
+POSTMARK_API_TOKEN=your-test-server-token
+DEFAULT_FROM_EMAIL=dev@yourdomain.com
+DEFAULT_FROM_NAME=ShipFree Dev
+```
+
+<Tip>
+  Create a separate "Development" server in Postmark with its own API token. This keeps test emails separate from production.
+</Tip>
+
+### Production Setup
+
+```bash
+# .env.production  
+POSTMARK_API_TOKEN=your-production-server-token
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+## Monitoring & Analytics
+
+Postmark provides excellent monitoring tools:
+
+### Activity Dashboard
+
+View real-time email activity:
+1. Go to your server dashboard
+2. Click **Activity**
+3. See sent, delivered, bounced, and spam complaints
+
+### Message Search
+
+Search for specific emails:
+1. Navigate to **Messages**
+2. Filter by recipient, subject, or date
+3. View full email content and delivery details
+
+### Webhooks
+
+Postmark can notify your app of email events:
+
+```typescript
+// Example webhook endpoint
+// POST /api/webhooks/postmark
+export async function POST(request: Request) {
+  const event = await request.json();
+  
+  switch (event.RecordType) {
+    case 'Delivery':
+      console.log('Email delivered:', event.MessageID);
+      break;
+    case 'Bounce':
+      console.log('Email bounced:', event.Email);
+      // Handle bounced email
+      break;
+    case 'SpamComplaint':
+      console.log('Spam complaint:', event.Email);
+      // Unsubscribe user
+      break;
+  }
+  
+  return Response.json({ received: true });
+}
+```
+
+Set up webhooks in Postmark → Server → Webhooks.
+
+## Pricing
+
+Postmark pricing:
+
+- **Free Tier**: 100 emails/month (perfect for testing)
+- **Starter**: $15/month for 10,000 emails
+- **Growing**: $75/month for 50,000 emails
+- **Scale**: Custom pricing for higher volumes
+
+[View current pricing →](https://postmarkapp.com/pricing)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: 'Postmark not configured'">
+    The `POSTMARK_API_TOKEN` is missing or invalid.
+    
+    **Solution:**
+    1. Verify `POSTMARK_API_TOKEN` is set in `.env`
+    2. Check token is from the **Server API tokens** tab (not Account token)
+    3. Restart your application
+  </Accordion>
+
+  <Accordion title="Error 406: 'Inactive recipient'">
+    The sender signature is not verified.
+    
+    **Solution:**
+    1. Go to Postmark → Sender Signatures
+    2. Verify your email address or domain
+    3. Ensure `DEFAULT_FROM_EMAIL` matches verified address/domain
+  </Accordion>
+
+  <Accordion title="Error 422: 'Invalid From address'">
+    You're sending from an unverified address.
+    
+    **Solution:**
+    - Add and verify the sender signature in Postmark
+    - Or verify the entire domain
+    - Update `DEFAULT_FROM_EMAIL` to match verified sender
+  </Accordion>
+
+  <Accordion title="Emails going to spam">
+    Improve deliverability:
+    
+    1. **Verify domain** instead of single email
+    2. **Add DKIM and Return-Path** DNS records
+    3. **Set up DMARC** policy for your domain
+    4. **Monitor bounce rates** in Postmark dashboard
+    5. **Use authenticated domain** in From address
+  </Accordion>
+
+  <Accordion title="Batch send failed">
+    Check batch limits:
+    
+    - Maximum 500 emails per batch request
+    - Each email must be under 10MB
+    - All From addresses must be verified
+    
+    If issues persist, check Postmark activity log for specific errors.
+  </Accordion>
+</AccordionGroup>
+
+## Code Reference
+
+The Postmark provider implementation:
+
+```
+src/lib/messaging/email/providers/postmark.ts
+```
+
+Key functions:
+- `createPostmarkProvider()` - Initialize provider (line 128)
+- `send()` - Send single email (line 51)
+- `sendBatch()` - Send batch emails (line 86)
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Postmark Documentation" icon="book" href="https://postmarkapp.com/support">
+    Official Postmark docs and guides
+  </Card>
+  <Card title="Postmark Dashboard" icon="chart-line" href="https://account.postmarkapp.com">
+    Manage servers and view analytics
+  </Card>
+  <Card title="API Reference" icon="code" href="https://postmarkapp.com/developer">
+    Complete API documentation
+  </Card>
+  <Card title="DMARC Guide" icon="shield" href="https://postmarkapp.com/guides/dmarc">
+    Set up DMARC for better deliverability
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<Steps>
+  <Step title="Set up DMARC">
+    Configure DMARC policy to improve deliverability and get weekly reports
+  </Step>
+  <Step title="Configure webhooks">
+    Get real-time notifications for bounces and spam complaints
+  </Step>
+  <Step title="Create message streams">
+    Separate transactional and marketing emails for better organization
+  </Step>
+</Steps>

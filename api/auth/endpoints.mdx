@@ -1,0 +1,557 @@
+---
+title: Authentication Endpoints
+description: Complete API reference for Better-Auth endpoints in ShipFree
+---
+
+All authentication endpoints are handled by Better-Auth through a catch-all route at `/api/auth/*`.
+
+## Implementation
+
+From `src/app/api/auth/[...all]/route.ts:1-5`:
+
+```typescript
+import { auth } from '@/lib/auth'
+import { toNextJsHandler } from 'better-auth/next-js'
+
+export const { GET, POST } = toNextJsHandler(auth)
+```
+
+This configuration automatically handles all Better-Auth endpoints.
+
+## Base URL
+
+All endpoints are prefixed with `/api/auth`. The base URL is configured in `src/lib/auth/auth.ts:20`:
+
+```typescript
+baseURL: getBaseUrl() // Automatically uses NEXT_PUBLIC_APP_URL
+```
+
+## Email & Password Endpoints
+
+### Sign Up
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+const result = await client.signUp.email({
+  email: 'user@example.com',
+  password: 'securePassword123',
+  name: 'John Doe'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "securePassword123",
+    "name": "John Doe"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password (minimum requirements defined by Better-Auth)
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  User's display name
+</ParamField>
+
+<ResponseField name="user" type="object">
+  Created user object
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User ID
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      User email
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      User name
+    </ResponseField>
+    <ResponseField name="emailVerified" type="boolean">
+      Email verification status
+    </ResponseField>
+    <ResponseField name="image" type="string | null">
+      Profile image URL
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      Account creation timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="session" type="object">
+  Session object if auto-signin is enabled
+</ResponseField>
+
+### Sign In
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+const result = await client.signIn.email({
+  email: 'user@example.com',
+  password: 'securePassword123'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "securePassword123"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+<ResponseField name="user" type="object">
+  Authenticated user object
+</ResponseField>
+
+<ResponseField name="session" type="object">
+  Created session
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Session ID
+    </ResponseField>
+    <ResponseField name="userId" type="string">
+      User ID
+    </ResponseField>
+    <ResponseField name="token" type="string">
+      Session token
+    </ResponseField>
+    <ResponseField name="expiresAt" type="string">
+      Session expiration timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Forget Password
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+await client.forgetPassword({
+  email: 'user@example.com',
+  redirectTo: '/reset-password'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/forget-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "redirectTo": "/reset-password"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  Email address to send reset link
+</ParamField>
+
+<ParamField body="redirectTo" type="string">
+  URL to redirect after clicking reset link
+</ParamField>
+
+### Reset Password
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+await client.resetPassword({
+  newPassword: 'newSecurePassword123',
+  token: 'reset_token_from_email'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "newPassword": "newSecurePassword123",
+    "token": "reset_token_from_email"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="newPassword" type="string" required>
+  New password
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  Reset token from email
+</ParamField>
+
+## Email OTP Endpoints
+
+### Send OTP
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+await client.emailOtp.sendVerificationOtp({
+  email: 'user@example.com',
+  type: 'sign-in'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/email-otp/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "type": "sign-in"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  Email to send OTP code
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  OTP type: `sign-in`, `email-verification`, or `forget-password`
+</ParamField>
+
+**Configuration** (from `src/lib/auth/auth.ts:186-188`):
+- OTP Length: 6 digits
+- Expiration: 15 minutes
+- Delivery: Via configured email service
+
+### Verify OTP
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+const result = await client.emailOtp.verifyEmail({
+  email: 'user@example.com',
+  otp: '123456'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/email-otp/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "otp": "123456"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  Email address
+</ParamField>
+
+<ParamField body="otp" type="string" required>
+  6-digit OTP code from email
+</ParamField>
+
+<ResponseField name="user" type="object">
+  Authenticated user object
+</ResponseField>
+
+<ResponseField name="session" type="object">
+  Created session
+</ResponseField>
+
+## OAuth Endpoints
+
+### Initiate OAuth Flow
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+// Redirects to OAuth provider
+await client.signIn.social({
+  provider: 'google',
+  callbackURL: '/dashboard'
+})
+```
+
+```bash Direct URL
+# Navigate to:
+GET /api/auth/signin/google?callbackURL=/dashboard
+```
+</CodeGroup>
+
+<ParamField query="provider" type="string" required>
+  OAuth provider: `google`, `github`, `microsoft`, or `facebook`
+</ParamField>
+
+<ParamField query="callbackURL" type="string">
+  URL to redirect after authentication
+</ParamField>
+
+**Supported Providers** (from `src/lib/auth/auth.ts:45-78`):
+
+<Accordion title="Google OAuth">
+  **Required Environment Variables:**
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  
+  **Scopes:** `email`, `profile`
+</Accordion>
+
+<Accordion title="GitHub OAuth">
+  **Required Environment Variables:**
+  - `GITHUB_CLIENT_ID`
+  - `GITHUB_CLIENT_SECRET`
+  
+  **Scopes:** `user:email`
+</Accordion>
+
+<Accordion title="Microsoft OAuth">
+  **Required Environment Variables:**
+  - `MICROSOFT_CLIENT_ID`
+  - `MICROSOFT_CLIENT_SECRET`
+  - `MICROSOFT_TENANT_ID` (optional, defaults to 'common')
+</Accordion>
+
+<Accordion title="Facebook OAuth">
+  **Required Environment Variables:**
+  - `FACEBOOK_CLIENT_ID`
+  - `FACEBOOK_CLIENT_SECRET`
+  
+  **Scopes:** `email`, `public_profile`
+</Accordion>
+
+### OAuth Callback
+
+Better-Auth automatically handles OAuth callbacks at:
+
+```
+GET /api/auth/callback/{provider}
+```
+
+No manual implementation required.
+
+## Session Endpoints
+
+### Get Session
+
+<CodeGroup>
+```typescript Client
+import { useSession } from '@/lib/auth'
+
+function MyComponent() {
+  const { data: session, isPending } = useSession()
+  return <div>{session?.user.name}</div>
+}
+```
+
+```typescript Server
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
+
+const session = await auth.api.getSession({
+  headers: await headers()
+})
+```
+
+```bash cURL
+curl https://yourapp.com/api/auth/get-session \
+  -H "Cookie: better-auth.session_token=YOUR_SESSION_TOKEN"
+```
+</CodeGroup>
+
+<ResponseField name="session" type="object | null">
+  Current session or null if not authenticated
+  <Expandable title="properties">
+    <ResponseField name="user" type="object">
+      User object
+    </ResponseField>
+    <ResponseField name="session" type="object">
+      Session metadata
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Sign Out
+
+<CodeGroup>
+```typescript Client
+import { signOut } from '@/lib/auth'
+
+await signOut()
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/sign-out \
+  -H "Cookie: better-auth.session_token=YOUR_SESSION_TOKEN"
+```
+</CodeGroup>
+
+## Organization Endpoints
+
+### Create Organization
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+const { data } = await client.organization.create({
+  name: 'Acme Corp',
+  slug: 'acme-corp'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/organization/create \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better-auth.session_token=YOUR_SESSION_TOKEN" \
+  -d '{
+    "name": "Acme Corp",
+    "slug": "acme-corp"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="name" type="string" required>
+  Organization name
+</ParamField>
+
+<ParamField body="slug" type="string" required>
+  URL-friendly slug
+</ParamField>
+
+<ResponseField name="organization" type="object">
+  Created organization
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Organization ID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Organization name
+    </ResponseField>
+    <ResponseField name="slug" type="string">
+      Organization slug
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      Creation timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Invite Member
+
+<CodeGroup>
+```typescript Client
+import { client } from '@/lib/auth'
+
+await client.organization.inviteMember({
+  organizationId: 'org_123',
+  email: 'member@example.com',
+  role: 'member'
+})
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/auth/organization/invite-member \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better-auth.session_token=YOUR_SESSION_TOKEN" \
+  -d '{
+    "organizationId": "org_123",
+    "email": "member@example.com",
+    "role": "member"
+  }'
+```
+</CodeGroup>
+
+<ParamField body="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email of person to invite
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Role: `member` or `admin`
+</ParamField>
+
+## Error Responses
+
+All endpoints return standard HTTP status codes:
+
+<ResponseField name="400" type="Bad Request">
+  Invalid request parameters or validation error
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Authentication required or invalid credentials
+</ResponseField>
+
+<ResponseField name="403" type="Forbidden">
+  Insufficient permissions
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  Resource not found
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Server error
+</ResponseField>
+
+**Error Response Format:**
+
+```json
+{
+  "error": {
+    "message": "Error description",
+    "code": "ERROR_CODE"
+  }
+}
+```
+
+## Cookie Configuration
+
+From `src/lib/auth/auth.ts:26-33`:
+
+```typescript
+advanced: {
+  cookiePrefix: APP_COOKIE_NAME, // 'better-auth'
+  crossSubDomainCookies: {
+    enabled: !isProd,
+    domain: '.shipfree.app'
+  },
+  useSecureCookies: !isProd
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Overview" icon="shield" href="/api/auth/overview">
+    Learn about authentication features
+  </Card>
+  <Card title="Database Schema" icon="database" href="/api/database/schema">
+    View auth-related database tables
+  </Card>
+</CardGroup>

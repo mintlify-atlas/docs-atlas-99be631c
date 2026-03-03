@@ -1,0 +1,354 @@
+---
+title: Deploy to Vercel
+description: Deploy ShipFree to Vercel with PostgreSQL database integration
+---
+
+Vercel is the recommended platform for deploying Next.js applications. ShipFree is optimized for Vercel's deployment workflow with built-in configuration.
+
+## Prerequisites
+
+- A Vercel account ([sign up here](https://vercel.com/signup))
+- A PostgreSQL database (Neon, Supabase, or Vercel Postgres)
+- Git repository (GitHub, GitLab, or Bitbucket)
+
+## Quick Deploy
+
+### 1. Deploy to Vercel
+
+The fastest way to deploy is using Vercel's Git integration:
+
+1. Push your code to a Git repository
+2. Import your repository in [Vercel Dashboard](https://vercel.com/new)
+3. Vercel will automatically detect Next.js and configure build settings
+4. Configure environment variables (see below)
+5. Click "Deploy"
+
+### 2. Set Up PostgreSQL Database
+
+Choose one of these PostgreSQL providers:
+
+#### Option A: Neon (Recommended)
+
+[Neon](https://neon.tech) offers serverless PostgreSQL with a generous free tier:
+
+1. Create a Neon account
+2. Create a new project
+3. Copy the connection string (it looks like: `postgres://user:password@host.neon.tech/database`)
+
+#### Option B: Supabase
+
+[Supabase](https://supabase.com) provides PostgreSQL with additional features:
+
+1. Create a Supabase project
+2. Go to Project Settings → Database
+3. Copy the connection string (use the "Connection Pooling" URL for better performance)
+
+#### Option C: Vercel Postgres
+
+[Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres) integrates directly with your Vercel project:
+
+1. In your Vercel project, go to Storage
+2. Create a new Postgres database
+3. Vercel automatically adds `POSTGRES_URL` to your environment variables
+
+## Environment Variables
+
+In your Vercel project settings, add the following environment variables:
+
+### Required Variables
+
+```bash
+# Database
+DATABASE_URL=postgres://user:password@host:5432/database
+PROD_DATABASE_URL=postgres://user:password@host:5432/database
+
+# App Configuration
+NEXT_PUBLIC_APP_URL=https://yourdomain.com
+NEXT_PUBLIC_ENV=production
+
+# Better-Auth (Authentication)
+BETTER_AUTH_SECRET=your-secret-key-here
+BETTER_AUTH_URL=https://yourdomain.com
+```
+
+Generate a secure `BETTER_AUTH_SECRET`:
+
+```bash
+openssl rand -base64 32
+```
+
+### Optional: OAuth Providers
+
+Add these if you're using social authentication:
+
+```bash
+# Google OAuth
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+
+# Microsoft OAuth
+MICROSOFT_CLIENT_ID=your-microsoft-client-id
+MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
+MICROSOFT_TENANT_ID=common
+
+# Facebook OAuth
+FACEBOOK_CLIENT_ID=your-facebook-client-id
+FACEBOOK_CLIENT_SECRET=your-facebook-client-secret
+```
+
+### Optional: Email Provider
+
+```bash
+# Resend (recommended)
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_123456789
+RESEND_DOMAIN=mail.yourdomain.com
+
+# Or Postmark
+EMAIL_PROVIDER=postmark
+POSTMARK_API_TOKEN=your-postmark-token
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Optional: Payment Provider
+
+```bash
+# Stripe
+PAYMENT_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Public Stripe price IDs
+NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY=price_...
+NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY=price_...
+```
+
+### Optional: Observability
+
+```bash
+# Sentry (error tracking)
+SENTRY_AUTH_TOKEN=your_sentry_auth_token
+NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn
+```
+
+### Optional: Storage
+
+```bash
+# Cloudflare R2 (S3-compatible)
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key
+R2_SECRET_ACCESS_KEY=your-secret-key
+R2_BUCKET_URL=https://your-bucket.r2.dev
+R2_STORAGE_BASE_URL=https://your-storage-domain.com
+R2_PUBLIC_BUCKET=your-public-bucket-name
+R2_PRIVATE_BUCKET=your-private-bucket-name
+```
+
+## Run Database Migrations
+
+After deploying, you need to run database migrations:
+
+### Option 1: Local Migration (Recommended)
+
+Run migrations from your local machine:
+
+```bash
+# Set production database URL
+export PROD_DATABASE_URL="postgres://user:password@host:5432/database"
+
+# Run migrations
+bun run migrate:prod
+```
+
+### Option 2: Vercel CLI
+
+Alternatively, use the Vercel CLI:
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Link to your project
+vercel link
+
+# Run migration command
+vercel env pull .env.production
+bun run migrate:prod
+```
+
+See the [Database Migrations](/deployment/database-migrations) guide for more details.
+
+## Vercel Configuration
+
+ShipFree includes a `vercel.json` configuration file:
+
+```json vercel.json
+{
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "https://revoks.mintlify.dev/docs"
+    },
+    {
+      "source": "/docs/:match*",
+      "destination": "https://revoks.mintlify.dev/docs/:match*"
+    }
+  ]
+}
+```
+
+This configuration:
+- Rewrites `/docs` routes to the documentation site
+- Can be customized for your deployment needs
+
+## Build Settings
+
+Vercel automatically detects these settings:
+
+- **Framework Preset**: Next.js
+- **Build Command**: `bun run build` (or `npm run build`)
+- **Output Directory**: `.next`
+- **Install Command**: `bun install` (if `bun.lock` is present)
+
+### Custom Build Configuration
+
+If needed, you can override these in Vercel project settings:
+
+```bash
+# Build Command
+bun run build
+
+# Install Command
+bun install
+
+# Development Command
+bun dev
+```
+
+## Domain Setup
+
+### Add Custom Domain
+
+1. Go to your Vercel project → Settings → Domains
+2. Add your domain (e.g., `yourdomain.com`)
+3. Follow DNS configuration instructions
+4. Update `NEXT_PUBLIC_APP_URL` and `BETTER_AUTH_URL` to match your domain
+
+### OAuth Callback URLs
+
+Update OAuth provider settings with your production URL:
+
+**Google Console:**
+- Authorized redirect URIs: `https://yourdomain.com/api/auth/callback/google`
+
+**GitHub Settings:**
+- Authorization callback URL: `https://yourdomain.com/api/auth/callback/github`
+
+**Microsoft Azure:**
+- Redirect URI: `https://yourdomain.com/api/auth/callback/microsoft`
+
+## Deployment Workflow
+
+### Automatic Deployments
+
+Vercel automatically deploys when you push to your Git repository:
+
+- **Production**: Pushes to `main` branch
+- **Preview**: Pull requests and other branches
+
+### Manual Deployments
+
+Deploy from your local machine:
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy to preview
+vercel
+
+# Deploy to production
+vercel --prod
+```
+
+## Monitoring & Logs
+
+### View Deployment Logs
+
+1. Go to Vercel Dashboard → Your Project → Deployments
+2. Click on any deployment to view build and runtime logs
+
+### Real-Time Logs
+
+View live logs using Vercel CLI:
+
+```bash
+vercel logs
+```
+
+### Sentry Integration
+
+ShipFree includes Sentry for error tracking. Configure it by adding:
+
+```bash
+SENTRY_AUTH_TOKEN=your_sentry_auth_token
+NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn
+```
+
+## Performance Optimization
+
+### Edge Functions
+
+ShipFree uses Vercel's Edge Runtime for optimal performance. No additional configuration needed.
+
+### Caching
+
+Next.js automatically optimizes caching on Vercel:
+- Static pages are cached at the edge
+- API routes use appropriate cache headers
+- ISR (Incremental Static Regeneration) works out of the box
+
+## Troubleshooting
+
+### Build Fails
+
+**Check environment variables:**
+```bash
+vercel env ls
+```
+
+**View build logs:**
+- Go to Deployments → Click failed deployment → View logs
+
+### Database Connection Issues
+
+**Verify DATABASE_URL:**
+- Ensure the connection string is correct
+- Check if your database allows connections from Vercel's IP ranges
+- For Neon/Supabase, use connection pooling URLs
+
+### OAuth Not Working
+
+**Common issues:**
+- Callback URLs don't match production domain
+- `BETTER_AUTH_URL` doesn't match actual domain
+- OAuth credentials are for wrong environment (dev vs prod)
+
+## Next Steps
+
+- [Set up database migrations](/deployment/database-migrations)
+- [Configure Docker deployment](/deployment/docker) (for self-hosting)
+- [Configure environment variables](/configuration/environment-variables)
+
+## Resources
+
+- [Vercel Documentation](https://vercel.com/docs)
+- [Next.js Deployment](https://nextjs.org/docs/deployment)
+- [Vercel Environment Variables](https://vercel.com/docs/concepts/projects/environment-variables)

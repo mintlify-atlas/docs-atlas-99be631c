@@ -1,0 +1,299 @@
+---
+title: Payment Providers Overview
+description: Understanding ShipFree's multi-provider payment architecture
+---
+
+ShipFree includes a flexible, multi-provider payment system that supports Stripe, Polar, and Lemon Squeezy out of the box. This architecture allows you to choose the payment provider that best fits your business needs.
+
+## Multi-Provider Architecture
+
+ShipFree implements a unified payment adapter pattern that provides a consistent interface across all payment providers. This means you can switch providers or support multiple providers without rewriting your application logic.
+
+### How It Works
+
+All payment operations go through a central `PaymentAdapter` interface defined in `src/lib/payments/types.ts`. Each provider (Stripe, Polar, Lemon Squeezy) implements this interface:
+
+```typescript
+interface PaymentAdapter {
+  createCheckout(options: CheckoutOptions): Promise<CheckoutResult>
+  createCustomer(userId: string, email?: string): Promise<CustomerData>
+  getSubscription(providerSubscriptionId: string): Promise<SubscriptionData | null>
+  cancelSubscription(providerSubscriptionId: string, cancelAtPeriodEnd?: boolean): Promise<void>
+  createPortal(customerId: string, returnUrl?: string): Promise<PortalResult>
+  processWebhook(event: WebhookEvent): Promise<WebhookResult>
+  validateWebhook(rawBody: string, signature: string): Promise<boolean>
+}
+```
+
+The active provider is configured via the `PAYMENT_PROVIDER` environment variable and accessed through `getPaymentAdapter()` in `src/lib/payments/service.ts`.
+
+## Payment Plans
+
+ShipFree comes with four pre-configured pricing tiers defined in `src/config/payments.ts`:
+
+### Free Plan
+- **Price**: $0
+- **Features**:
+  - Up to 3 projects
+  - Basic analytics
+  - Community support
+  - Standard templates
+
+### Starter Plan
+- **Price**: $9.90/month or $99/year
+- **Trial**: 14 days
+- **Features**:
+  - Up to 10 projects
+  - Advanced analytics
+  - Email support
+  - Premium templates
+  - Custom integrations
+
+### Pro Plan (Recommended)
+- **Price**: $29.90/month or $299/year
+- **Trial**: 14 days
+- **Seat-based**: Yes (up to 50 seats)
+- **Features**:
+  - Unlimited projects
+  - Real-time analytics
+  - Priority support
+  - White-label options
+  - Advanced integrations
+  - Team collaboration
+  - Custom workflows
+
+### Enterprise Plan
+- **Price**: $99.90/month or $999/year
+- **Trial**: 30 days
+- **Seat-based**: Yes (unlimited seats)
+- **Features**:
+  - Everything in Pro
+  - Dedicated account manager
+  - Custom contracts
+  - SLA guarantees
+  - Advanced security
+  - Unlimited seats
+  - Custom integrations
+  - On-premise deployment
+
+## Customizing Plans
+
+To modify the pricing plans, edit `src/config/payments.ts`:
+
+```typescript
+export const paymentConfig = {
+  plans: {
+    starter: {
+      name: 'Starter',
+      description: 'Great for small teams',
+      prices: {
+        stripe: [
+          {
+            productId: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY || '',
+            interval: 'month',
+            amount: 990, // $9.90 in cents
+            currency: 'usd',
+            trialPeriodDays: 14,
+            type: 'recurring',
+          },
+        ],
+        // ... other providers
+      },
+      features: [
+        'Up to 10 projects',
+        'Advanced analytics',
+        // ...
+      ],
+    },
+    // ... other plans
+  },
+}
+```
+
+## Choosing a Payment Provider
+
+### Stripe
+**Best for**: Established businesses, global markets, maximum flexibility
+
+**Pros**:
+- Industry standard with extensive documentation
+- Powerful billing portal for customers
+- Advanced features (metered billing, usage-based pricing)
+- Excellent fraud protection
+- Global payment methods
+
+**Cons**:
+- Higher fees (2.9% + $0.30 per transaction)
+- More complex setup
+- Requires careful webhook handling
+
+### Polar
+**Best for**: Developer tools, open-source projects, GitHub-integrated products
+
+**Pros**:
+- Built for developers selling to developers
+- GitHub integration
+- Simple pricing
+- Modern API
+- Developer-friendly portal
+
+**Cons**:
+- Newer platform (less mature than Stripe)
+- Limited payment methods compared to Stripe
+- Smaller ecosystem
+
+### Lemon Squeezy
+**Best for**: Digital products, SaaS, indie hackers, simplified tax handling
+
+**Pros**:
+- Merchant of Record (handles VAT/sales tax for you)
+- Simple setup and pricing
+- Great for digital products
+- No need for business entity in multiple countries
+- Built-in fraud protection
+
+**Cons**:
+- Higher fees (5% + payment processing)
+- Less customization than Stripe
+- Merchant of Record means they're the seller (legal implications)
+
+## Common Patterns
+
+### Creating a Checkout Session
+
+```typescript
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+const adapter = getPaymentAdapter()
+const checkout = await adapter.createCheckout({
+  plan: 'pro',
+  userId: user.id,
+  email: user.email,
+  successUrl: 'https://yourdomain.com/dashboard?checkout=success',
+  cancelUrl: 'https://yourdomain.com/pricing',
+})
+
+// Redirect user to checkout.url
+```
+
+### Opening Customer Portal
+
+```typescript
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+const adapter = getPaymentAdapter()
+const portal = await adapter.createPortal(
+  customer.providerCustomerId,
+  'https://yourdomain.com/dashboard'
+)
+
+// Redirect user to portal.url
+```
+
+### Checking Subscription Status
+
+```typescript
+import { getPaymentAdapter } from '@/lib/payments/service'
+
+const adapter = getPaymentAdapter()
+const subscription = await adapter.getSubscription(
+  providerSubscriptionId
+)
+
+if (subscription?.status === 'active') {
+  // User has active subscription
+}
+```
+
+### Client-Side React Hooks
+
+ShipFree provides React hooks for common payment operations:
+
+```typescript
+import { useCheckout, useSubscription, usePortal } from '@/lib/payments/hooks'
+
+function PricingCard() {
+  const { checkout, isLoading } = useCheckout()
+  const { subscription } = useSubscription()
+  const { openPortal } = usePortal()
+
+  const handleUpgrade = async () => {
+    await checkout({ plan: 'pro' })
+  }
+
+  const handleManageSubscription = async () => {
+    await openPortal()
+  }
+}
+```
+
+## Webhooks
+
+All payment providers send webhooks to notify your application of events (subscription created, payment succeeded, etc.).
+
+**Webhook endpoint**: `POST /api/webhooks/payments`
+
+The webhook handler in `src/app/api/webhooks/payments/route.ts`:
+1. Validates the webhook signature
+2. Processes the event through the adapter
+3. Updates the database (customers, subscriptions, payments)
+
+Each provider requires different webhook configuration - see the individual provider guides for details.
+
+## Database Schema
+
+Payment data is stored in three main tables:
+
+### Customers
+Stores customer records linked to users:
+```sql
+- id (primary key)
+- userId (foreign key to users)
+- provider (stripe | polar | lemonsqueezy)
+- providerCustomerId (provider's customer ID)
+- email
+```
+
+### Subscriptions
+Stores subscription information:
+```sql
+- id (primary key)
+- userId (foreign key to users)
+- customerId (foreign key to customers)
+- provider
+- providerSubscriptionId
+- status (active | canceled | past_due | trialing | incomplete | paused)
+- plan (free | starter | pro | enterprise)
+- interval (month | year | null)
+- amount, currency
+- currentPeriodStart, currentPeriodEnd
+- cancelAtPeriodEnd, canceledAt
+- trialStart, trialEnd
+```
+
+### Payments
+Stores individual payment records:
+```sql
+- id (primary key)
+- userId, customerId, subscriptionId
+- provider
+- providerPaymentId
+- type (subscription | one_time | refund)
+- status (succeeded | pending | failed | canceled | refunded)
+- amount, currency
+- description
+```
+
+## Next Steps
+
+1. Choose your payment provider
+2. Set up your provider account and get API keys
+3. Configure webhooks
+4. Test in development mode
+5. Go live!
+
+See the individual provider guides for detailed setup instructions:
+- [Stripe Setup](/payments/stripe)
+- [Polar Setup](/payments/polar)
+- [Lemon Squeezy Setup](/payments/lemonsqueezy)
+- [Other Providers](/payments/other-providers)

@@ -1,0 +1,259 @@
+---
+title: Authentication Overview
+description: Understanding ShipFree's authentication system built with Better-Auth
+---
+
+ShipFree uses [Better-Auth](https://better-auth.com) for a complete authentication solution with support for email/password, OAuth providers, email OTP, and organizations.
+
+## Architecture
+
+The authentication system consists of three main components:
+
+1. **Server-side Auth Configuration** (`src/lib/auth/auth.ts`)
+2. **Client-side Auth Client** (`src/lib/auth/auth-client.ts`)
+3. **API Routes** (`src/app/api/auth/[...all]/route.ts`)
+
+## Features
+
+### Email & Password Authentication
+
+Email and password authentication with optional email verification:
+
+```typescript
+import { client } from '@/lib/auth'
+
+// Sign up with email and password
+const { data, error } = await client.signUp.email({
+  email: 'user@example.com',
+  password: 'securePassword123',
+  name: 'John Doe'
+})
+
+// Sign in
+const { data, error } = await client.signIn.email({
+  email: 'user@example.com',
+  password: 'securePassword123'
+})
+```
+
+### Email OTP (One-Time Password)
+
+Passwordless authentication via email OTP:
+
+```typescript
+import { client } from '@/lib/auth'
+
+// Send OTP to email
+await client.emailOtp.sendVerificationOtp({
+  email: 'user@example.com',
+  type: 'sign-in' // or 'email-verification' or 'forget-password'
+})
+
+// Verify OTP and sign in
+const { data, error } = await client.emailOtp.verifyEmail({
+  email: 'user@example.com',
+  otp: '123456'
+})
+```
+
+**Configuration** (from `src/lib/auth/auth.ts:130-188`):
+
+- **OTP Length**: 6 digits
+- **Expiration**: 15 minutes
+- **Types**: `sign-in`, `email-verification`, `forget-password`
+- **Email delivery**: Configured via email service (Resend, Postmark, Plunk, or Nodemailer)
+
+### OAuth Providers
+
+Supported OAuth providers (configured in `src/lib/auth/auth.ts:45-78`):
+
+<CardGroup cols={2}>
+  <Card title="Google" icon="google">
+    Requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+  </Card>
+  <Card title="GitHub" icon="github">
+    Requires `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
+  </Card>
+  <Card title="Microsoft" icon="microsoft">
+    Requires `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET`
+  </Card>
+  <Card title="Facebook" icon="facebook">
+    Requires `FACEBOOK_CLIENT_ID` and `FACEBOOK_CLIENT_SECRET`
+  </Card>
+</CardGroup>
+
+**Usage**:
+
+```typescript
+import { client } from '@/lib/auth'
+
+// Initiate OAuth flow
+await client.signIn.social({
+  provider: 'google', // or 'github', 'microsoft', 'facebook'
+  callbackURL: '/dashboard'
+})
+```
+
+### Session Management
+
+Configuration from `src/lib/auth/auth.ts:35-43`:
+
+<ParamField path="cookieCache.enabled" type="boolean" default={true}>
+  Enable cookie-based session caching
+</ParamField>
+
+<ParamField path="cookieCache.maxAge" type="number" default={86400}>
+  Cache duration: 24 hours (in seconds)
+</ParamField>
+
+<ParamField path="expiresIn" type="number" default={2592000}>
+  Session lifetime: 30 days (in seconds)
+</ParamField>
+
+<ParamField path="updateAge" type="number" default={86400}>
+  How often to refresh expiry: 24 hours (in seconds)
+</ParamField>
+
+<ParamField path="freshAge" type="number" default={3600}>
+  Fresh session window: 1 hour (in seconds)
+</ParamField>
+
+**Get current session**:
+
+```typescript
+// Client-side
+import { useSession } from '@/lib/auth'
+
+function MyComponent() {
+  const { data: session, isPending } = useSession()
+  
+  if (isPending) return <div>Loading...</div>
+  if (!session) return <div>Not authenticated</div>
+  
+  return <div>Hello, {session.user.name}!</div>
+}
+```
+
+```typescript
+// Server-side (Server Components or API Routes)
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
+
+const session = await auth.api.getSession({
+  headers: await headers()
+})
+
+if (!session) {
+  // User is not authenticated
+}
+```
+
+### Organizations
+
+Multi-tenant organization support via the organization plugin (`src/lib/auth/auth.ts:190-211`):
+
+```typescript
+import { client } from '@/lib/auth'
+
+// Create an organization
+const { data } = await client.organization.create({
+  name: 'My Company',
+  slug: 'my-company'
+})
+
+// Invite members
+await client.organization.inviteMember({
+  organizationId: 'org_123',
+  email: 'member@example.com',
+  role: 'member' // or 'admin'
+})
+```
+
+## Database Schema
+
+Better-Auth integrates with ShipFree's PostgreSQL database via Drizzle ORM. See [Database Schema](/api/database/schema) for table structures.
+
+**Key tables**:
+- `user` - User accounts
+- `session` - Active sessions
+- `account` - OAuth accounts linked to users
+- `verification` - Email verification tokens and OTP codes
+
+## Email Verification
+
+Email verification can be enabled/disabled via feature flag (`src/config/feature-flags.ts`).
+
+**Configuration** (`src/lib/auth/auth.ts:80-126`):
+
+```typescript
+emailVerification: {
+  autoSignInAfterVerification: true,
+  afterEmailVerification: async (user) => {
+    // Send welcome email after successful verification
+  }
+}
+
+emailAndPassword: {
+  enabled: true,
+  requireEmailVerification: isEmailVerificationEnabled,
+  sendResetPassword: async ({ user, url }) => {
+    // Send password reset email
+  }
+}
+```
+
+## Password Reset
+
+Password reset flow:
+
+```typescript
+import { client } from '@/lib/auth'
+
+// Request password reset
+await client.forgetPassword({
+  email: 'user@example.com',
+  redirectTo: '/reset-password'
+})
+
+// Reset with token
+await client.resetPassword({
+  newPassword: 'newSecurePassword123',
+  token: 'reset_token_from_email'
+})
+```
+
+## Sign Out
+
+```typescript
+import { signOut } from '@/lib/auth'
+
+// Sign out current session
+await signOut()
+
+// Sign out and redirect
+await signOut({ redirect: '/login' })
+```
+
+## Custom Pages
+
+Authentication pages are configured in `src/lib/auth/auth.ts:214-219`:
+
+```typescript
+pages: {
+  signIn: '/login',
+  signUp: '/register',
+  error: '/error',
+  verify: '/verify'
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Endpoints" icon="code" href="/api/auth/endpoints">
+    Explore all available authentication endpoints
+  </Card>
+  <Card title="Database Schema" icon="database" href="/api/database/schema">
+    View authentication-related database tables
+  </Card>
+</CardGroup>

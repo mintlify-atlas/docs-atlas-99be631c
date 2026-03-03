@@ -1,0 +1,563 @@
+---
+title: Environment Variables
+description: Complete guide to configuring ShipFree with environment variables
+---
+
+ShipFree uses environment variables for configuration. All variables are validated at build time using `@t3-oss/env-nextjs` and Zod for type safety.
+
+## Setup
+
+1. Copy `.env.example` to `.env` in your project root:
+```bash
+cp .env.example .env
+```
+
+2. Fill in the required values for your environment
+3. Variables are validated in `src/config/env.ts`
+
+## Validation
+
+All environment variables are validated using Zod schemas:
+
+```typescript
+import { createEnv } from '@t3-oss/env-nextjs'
+import { z } from 'zod'
+
+export const env = createEnv({
+  server: { /* server-only variables */ },
+  client: { /* client-accessible variables */ },
+  shared: { /* available on both */ },
+  runtimeEnv: { /* process.env mappings */ }
+})
+```
+
+Variables in the `server` object are only accessible server-side. Variables in `client` must be prefixed with `NEXT_PUBLIC_` and are exposed to the browser.
+
+## Core Configuration
+
+### Database
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string used by Drizzle ORM.
+  
+  ```bash
+  DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+  ```
+</ParamField>
+
+<ParamField path="PROD_DATABASE_URL" type="string">
+  Production database URL used when running migrations in production.
+  
+  ```bash
+  PROD_DATABASE_URL=postgres://user:password@host:5432/database
+  ```
+</ParamField>
+
+### Application URL
+
+<ParamField path="NEXT_PUBLIC_APP_URL" type="string" default="http://localhost:3000">
+  Public URL of your application. Used for OAuth callbacks, email links, and API endpoints.
+  
+  **Local development:**
+  ```bash
+  NEXT_PUBLIC_APP_URL=http://localhost:3000
+  ```
+  
+  **Production:**
+  ```bash
+  NEXT_PUBLIC_APP_URL=https://yourdomain.com
+  ```
+</ParamField>
+
+### Node Environment
+
+<ParamField path="NODE_ENV" type="enum">
+  Runtime environment. Values: `development`, `production`, `test`
+  
+  Validated as:
+  ```typescript
+  z.enum(['development', 'test', 'production']).optional()
+  ```
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_ENV" type="string" default="development">
+  Client-side environment indicator exposed to the browser.
+</ParamField>
+
+## Authentication (Better-Auth)
+
+<ParamField path="BETTER_AUTH_SECRET" type="string" required default="dev-secret-change-in-production">
+  Secret key used to encrypt sessions and sign tokens.
+  
+  **Generate a secure secret:**
+  ```bash
+  openssl rand -base64 32
+  ```
+  
+  **Never use the default in production!**
+</ParamField>
+
+<ParamField path="BETTER_AUTH_URL" type="string" default="http://localhost:3000">
+  Base URL of your application. Must match `NEXT_PUBLIC_APP_URL`.
+</ParamField>
+
+<ParamField path="BILLING_ENABLED" type="boolean" default="false">
+  Enable billing enforcement across the application.
+  
+  Validated as:
+  ```typescript
+  z.boolean().default(false)
+  ```
+</ParamField>
+
+<ParamField path="EMAIL_VERIFICATION_ENABLED" type="boolean" default="false">
+  Require email verification for new user accounts.
+</ParamField>
+
+## OAuth Providers
+
+All OAuth providers are optional. Configure only the ones you need.
+
+### Google OAuth
+
+<ParamField path="GOOGLE_CLIENT_ID" type="string">
+  Google OAuth client ID.
+  
+  Get credentials from: [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+</ParamField>
+
+<ParamField path="GOOGLE_CLIENT_SECRET" type="string">
+  Google OAuth client secret.
+</ParamField>
+
+### GitHub OAuth
+
+<ParamField path="GITHUB_CLIENT_ID" type="string">
+  GitHub OAuth application ID.
+  
+  Get credentials from: [GitHub Developer Settings](https://github.com/settings/developers)
+</ParamField>
+
+<ParamField path="GITHUB_CLIENT_SECRET" type="string">
+  GitHub OAuth application secret.
+</ParamField>
+
+### Microsoft OAuth
+
+<ParamField path="MICROSOFT_CLIENT_ID" type="string">
+  Microsoft/Azure AD application ID.
+  
+  Get credentials from: [Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredApps)
+</ParamField>
+
+<ParamField path="MICROSOFT_CLIENT_SECRET" type="string">
+  Microsoft/Azure AD application secret.
+</ParamField>
+
+<ParamField path="MICROSOFT_TENANT_ID" type="string" default="common">
+  Azure AD tenant ID. Use `common` for multi-tenant applications.
+</ParamField>
+
+### Facebook OAuth
+
+<ParamField path="FACEBOOK_CLIENT_ID" type="string">
+  Facebook app ID.
+  
+  Get credentials from: [Facebook Developers](https://developers.facebook.com/apps)
+</ParamField>
+
+<ParamField path="FACEBOOK_CLIENT_SECRET" type="string">
+  Facebook app secret.
+</ParamField>
+
+## Email Configuration
+
+<ParamField path="EMAIL_PROVIDER" type="enum" default="log">
+  Email service provider to use for transactional emails.
+  
+  **Options:** `resend`, `postmark`, `nodemailer`, `plunk`, `custom`, `log`
+  
+  Validated as:
+  ```typescript
+  z.enum(['resend', 'postmark', 'nodemailer', 'plunk', 'custom', 'log']).default('log')
+  ```
+  
+  Set to `log` in development to print emails to console.
+</ParamField>
+
+### Email Defaults
+
+<ParamField path="DEFAULT_FROM_EMAIL" type="string">
+  Default sender email address for outgoing emails.
+  
+  ```bash
+  DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+  ```
+</ParamField>
+
+<ParamField path="DEFAULT_FROM_NAME" type="string">
+  Default sender name for outgoing emails.
+  
+  ```bash
+  DEFAULT_FROM_NAME=ShipFree
+  ```
+</ParamField>
+
+### Resend (Recommended)
+
+<ParamField path="RESEND_API_KEY" type="string">
+  Resend API key.
+  
+  Get from: [Resend API Keys](https://resend.com/api-keys)
+  
+  ```bash
+  RESEND_API_KEY=re_123456789
+  ```
+</ParamField>
+
+<ParamField path="RESEND_DOMAIN" type="string">
+  Verified domain for sending emails via Resend.
+  
+  ```bash
+  RESEND_DOMAIN=mail.yourdomain.com
+  ```
+</ParamField>
+
+### Postmark
+
+<ParamField path="POSTMARK_API_TOKEN" type="string">
+  Postmark server API token.
+  
+  Get from: [Postmark](https://postmarkapp.com/support/artifacts/api-tokens)
+</ParamField>
+
+### Plunk
+
+<ParamField path="PLUNK_API_KEY" type="string">
+  Plunk API key.
+  
+  Get from: [Plunk Settings](https://plunk.com/settings/api)
+</ParamField>
+
+### SMTP / Nodemailer
+
+<ParamField path="SMTP_HOST" type="string">
+  SMTP server hostname.
+  
+  ```bash
+  SMTP_HOST=smtp.example.com
+  ```
+</ParamField>
+
+<ParamField path="SMTP_PORT" type="number">
+  SMTP server port.
+  
+  Validated as:
+  ```typescript
+  z.coerce.number().optional()
+  ```
+  
+  Common ports: `587` (TLS), `465` (SSL), `25` (unencrypted)
+</ParamField>
+
+<ParamField path="SMTP_USER" type="string">
+  SMTP authentication username.
+</ParamField>
+
+<ParamField path="SMTP_PASS" type="string">
+  SMTP authentication password.
+</ParamField>
+
+<ParamField path="SMTP_SECURE" type="string">
+  Enable TLS/SSL. Set to `"true"` for port 465, `"false"` for port 587.
+</ParamField>
+
+## Payment Providers
+
+ShipFree supports multiple payment providers. Configure only the one you're using.
+
+<ParamField path="PAYMENT_PROVIDER" type="enum" default="stripe">
+  Payment provider to use for billing and subscriptions.
+  
+  **Options:** `stripe`, `polar`, `lemonsqueezy`
+  
+  Validated as:
+  ```typescript
+  z.enum(['stripe', 'polar', 'lemonsqueezy']).default('stripe')
+  ```
+</ParamField>
+
+### Stripe
+
+<ParamField path="STRIPE_SECRET_KEY" type="string">
+  Stripe secret API key (starts with `sk_`).
+  
+  Get from: [Stripe Dashboard](https://dashboard.stripe.com/apikeys)
+  
+  ```bash
+  STRIPE_SECRET_KEY=sk_live_...
+  ```
+</ParamField>
+
+<ParamField path="STRIPE_WEBHOOK_SECRET" type="string">
+  Stripe webhook signing secret (starts with `whsec_`).
+  
+  Used to verify webhook events from Stripe.
+</ParamField>
+
+<ParamField path="STRIPE_PRICE_ID" type="string">
+  Default Stripe price ID for subscriptions.
+</ParamField>
+
+#### Stripe Price IDs (Public)
+
+These are exposed to the client for displaying pricing.
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY" type="string">
+  Stripe price ID for Starter plan (monthly billing).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_STARTER_YEARLY" type="string">
+  Stripe price ID for Starter plan (yearly billing).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY" type="string">
+  Stripe price ID for Pro plan (monthly billing).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_PRO_YEARLY" type="string">
+  Stripe price ID for Pro plan (yearly billing).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE_MONTHLY" type="string">
+  Stripe price ID for Enterprise plan (monthly billing).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_STRIPE_PRICE_ENTERPRISE_YEARLY" type="string">
+  Stripe price ID for Enterprise plan (yearly billing).
+</ParamField>
+
+### Polar
+
+<ParamField path="POLAR_ACCESS_TOKEN" type="string">
+  Polar API access token.
+  
+  Get from: [Polar Settings](https://polar.sh/settings)
+</ParamField>
+
+<ParamField path="POLAR_WEBHOOK_SECRET" type="string">
+  Polar webhook secret for verifying webhook events.
+</ParamField>
+
+<ParamField path="POLAR_ORGANIZATION_ID" type="string">
+  Your Polar organization ID.
+</ParamField>
+
+<ParamField path="POLAR_PRODUCT_ID" type="string">
+  Polar product ID for subscriptions.
+</ParamField>
+
+<ParamField path="POLAR_ENVIRONMENT" type="enum" default="production">
+  Polar environment.
+  
+  **Options:** `production`, `sandbox`
+  
+  Validated as:
+  ```typescript
+  z.enum(['production', 'sandbox']).default('production')
+  ```
+</ParamField>
+
+#### Polar Product IDs (Public)
+
+<ParamField path="NEXT_PUBLIC_POLAR_PRODUCT_STARTER_MONTHLY" type="string">
+  Polar product ID for Starter plan (monthly).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_POLAR_PRODUCT_PRO_MONTHLY" type="string">
+  Polar product ID for Pro plan (monthly).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_POLAR_PRODUCT_ENTERPRISE_MONTHLY" type="string">
+  Polar product ID for Enterprise plan (monthly).
+</ParamField>
+
+### Lemon Squeezy
+
+<ParamField path="LEMONSQUEEZY_API_KEY" type="string">
+  Lemon Squeezy API key.
+  
+  Get from: [Lemon Squeezy Settings](https://app.lemonsqueezy.com/settings/api)
+</ParamField>
+
+<ParamField path="LEMONSQUEEZY_STORE_ID" type="string">
+  Your Lemon Squeezy store ID.
+</ParamField>
+
+<ParamField path="LEMONSQUEEZY_WEBHOOK_SECRET" type="string">
+  Lemon Squeezy webhook secret.
+</ParamField>
+
+#### Lemon Squeezy Product IDs (Public)
+
+<ParamField path="NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_STARTER_MONTHLY" type="string">
+  Lemon Squeezy product ID for Starter plan (monthly).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_PRO_MONTHLY" type="string">
+  Lemon Squeezy product ID for Pro plan (monthly).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_ENTERPRISE_MONTHLY" type="string">
+  Lemon Squeezy product ID for Enterprise plan (monthly).
+</ParamField>
+
+## Cloudflare R2 Storage
+
+Optional file storage using Cloudflare R2 (S3-compatible).
+
+<ParamField path="CLOUDFLARE_ACCOUNT_ID" type="string">
+  Your Cloudflare account ID.
+  
+  Get from: [Cloudflare R2 Dashboard](https://dash.cloudflare.com/r2)
+</ParamField>
+
+<ParamField path="R2_ACCESS_KEY_ID" type="string">
+  R2 access key ID.
+</ParamField>
+
+<ParamField path="R2_SECRET_ACCESS_KEY" type="string">
+  R2 secret access key.
+</ParamField>
+
+<ParamField path="R2_BUCKET_URL" type="string">
+  R2 bucket URL.
+  
+  ```bash
+  R2_BUCKET_URL=https://your-bucket.r2.dev
+  ```
+</ParamField>
+
+<ParamField path="R2_STORAGE_BASE_URL" type="string">
+  Public storage domain for accessing files.
+  
+  ```bash
+  R2_STORAGE_BASE_URL=https://your-storage-domain.com
+  ```
+</ParamField>
+
+<ParamField path="R2_PUBLIC_BUCKET" type="string">
+  Name of the public R2 bucket.
+</ParamField>
+
+<ParamField path="R2_PRIVATE_BUCKET" type="string">
+  Name of the private R2 bucket.
+</ParamField>
+
+## Observability
+
+### Sentry
+
+<ParamField path="SENTRY_DSN" type="string">
+  Sentry DSN for error tracking (server-side).
+  
+  ```bash
+  SENTRY_DSN=https://your-sentry-dsn
+  ```
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_SENTRY_DSN" type="string">
+  Sentry DSN for client-side error tracking.
+</ParamField>
+
+<ParamField path="SENTRY_AUTH_TOKEN" type="string">
+  Sentry authentication token for uploading source maps.
+</ParamField>
+
+## Premium Template Purchase
+
+<Note>
+  These variables are for the premium template purchase feature. This is **completely separate** from your application's payment system and can be removed if not needed. See the README for removal instructions.
+</Note>
+
+<ParamField path="PREMIUM_PURCHASE_STRIPE_SECRET_KEY" type="string">
+  Stripe secret key for template purchases (separate from app payments).
+  
+  ```bash
+  PREMIUM_PURCHASE_STRIPE_SECRET_KEY=sk_live_...
+  ```
+</ParamField>
+
+<ParamField path="PREMIUM_PURCHASE_STRIPE_PRICE_ID" type="string">
+  Stripe price ID for the one-time $90 premium template purchase.
+</ParamField>
+
+<ParamField path="PREMIUM_PURCHASE_STRIPE_WEBHOOK_SECRET" type="string">
+  Webhook secret for premium purchase webhooks.
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_PREMIUM_PURCHASE_STRIPE_PUBLISHABLE_KEY" type="string">
+  Stripe publishable key for template purchases (client-side).
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_PREMIUM_PURCHASE_DISCORD_INVITE_LINK" type="string">
+  Discord invite link for premium template purchasers.
+  
+  ```bash
+  NEXT_PUBLIC_PREMIUM_PURCHASE_DISCORD_INVITE_LINK=https://discord.gg/your-invite-code
+  ```
+</ParamField>
+
+## Utility Functions
+
+ShipFree provides utility functions for working with environment variables in `src/config/feature-flags.ts`:
+
+```typescript
+import { env, isTruthy, isFalsy } from '@/config/env'
+import { 
+  isProd, 
+  isDev, 
+  isTest,
+  isBillingEnabled,
+  isEmailVerificationEnabled,
+  isStripeConfigured,
+  isPolarConfigured,
+  hasBillingProvider
+} from '@/config/feature-flags'
+
+// Check environment
+if (isProd) {
+  // Production-only logic
+}
+
+// Check feature flags
+if (isBillingEnabled) {
+  // Billing logic
+}
+
+// Check payment provider
+if (isStripeConfigured) {
+  // Stripe-specific logic
+}
+```
+
+## Type Safety
+
+Access environment variables through the validated `env` object:
+
+```typescript
+import { env } from '@/config/env'
+
+// ✅ Type-safe and validated
+const dbUrl = env.DATABASE_URL
+const appUrl = env.NEXT_PUBLIC_APP_URL
+
+// ❌ Don't use process.env directly
+const dbUrl = process.env.DATABASE_URL // Not type-safe!
+```
+
+The `env` object ensures:
+- All required variables are present at build time
+- Values match expected types (string, number, boolean, enum)
+- Default values are applied
+- Client variables are properly prefixed

@@ -1,0 +1,553 @@
+---
+title: Installation
+description: Complete installation guide for setting up ShipFree with all prerequisites and configuration options.
+---
+
+# Installation
+
+This guide covers everything you need to install and configure ShipFree for development and production.
+
+## Prerequisites
+
+Before installing ShipFree, make sure you have the following installed on your system:
+
+### Required
+
+<CardGroup cols={2}>
+  <Card title="Bun" icon="package">
+    **Version**: 1.2.20 or higher
+    
+    Bun is a fast JavaScript runtime and package manager.
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+    
+    Verify installation:
+    ```bash
+    bun --version
+    ```
+  </Card>
+  
+  <Card title="PostgreSQL" icon="database">
+    **Version**: 14 or higher
+    
+    PostgreSQL is the database used by ShipFree.
+    
+    **macOS**:
+    ```bash
+    brew install postgresql@16
+    brew services start postgresql@16
+    ```
+    
+    **Ubuntu/Debian**:
+    ```bash
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+    ```
+    
+    **Windows**:
+    Download from [postgresql.org](https://www.postgresql.org/download/windows/)
+  </Card>
+</CardGroup>
+
+### Optional
+
+- **Git**: For cloning the repository
+- **OpenSSL**: For generating secure secrets
+- **Docker**: For containerized development (alternative to local PostgreSQL)
+
+## Step-by-step setup
+
+<Steps>
+  <Step title="Clone the repository">
+    Start by cloning the ShipFree repository:
+
+    ```bash
+    git clone https://github.com/revokshq/shipfree.git
+    cd shipfree
+    ```
+
+    <Info>
+      You can also download the ZIP file from GitHub if you prefer not to use Git.
+    </Info>
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all required packages using Bun:
+
+    ```bash
+    bun install
+    ```
+
+    This will install all dependencies listed in `package.json`, including:
+    - Next.js 16.1 framework
+    - Better-Auth for authentication
+    - Drizzle ORM for database operations
+    - TailwindCSS 4 for styling
+    - And many more packages
+
+    <Tip>
+      Bun automatically uses the exact version specified in `package.json` (`bun@1.2.20`).
+    </Tip>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create your environment file from the example:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    ### Core configuration
+
+    Edit `.env` and set these required variables:
+
+    ```bash
+    # Database connection
+    DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+    PROD_DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+
+    # App URL (change in production)
+    NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+    # Environment
+    NEXT_PUBLIC_ENV=development
+
+    # Better-Auth configuration
+    BETTER_AUTH_SECRET=your-secret-key-here
+    BETTER_AUTH_URL=http://localhost:3000
+
+    # Email provider (use 'log' for development)
+    EMAIL_PROVIDER=log
+    ```
+
+    ### Generate a secure auth secret
+
+    Use OpenSSL to generate a secure random secret:
+
+    ```bash
+    openssl rand -base64 32
+    ```
+
+    Copy the output and paste it as your `BETTER_AUTH_SECRET` value.
+
+    <Warning>
+      Never commit your `.env` file to version control. The `.env.example` file is for reference only.
+    </Warning>
+  </Step>
+
+  <Step title="Set up PostgreSQL database">
+    Create a new database for ShipFree:
+
+    ### Using psql
+
+    ```bash
+    createdb shipfree
+    ```
+
+    ### Using PostgreSQL CLI
+
+    ```bash
+    psql -U postgres
+    ```
+
+    Then in the PostgreSQL prompt:
+
+    ```sql
+    CREATE DATABASE shipfree;
+    \q
+    ```
+
+    ### Using Docker (alternative)
+
+    If you prefer using Docker for PostgreSQL:
+
+    ```bash
+    docker run --name shipfree-postgres \
+      -e POSTGRES_USER=postgres \
+      -e POSTGRES_PASSWORD=postgres \
+      -e POSTGRES_DB=shipfree \
+      -p 5432:5432 \
+      -d postgres:16
+    ```
+
+    ### Verify database connection
+
+    Test your database connection:
+
+    ```bash
+    psql postgres://postgres:postgres@localhost:5432/shipfree -c "SELECT version();"
+    ```
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply the database schema using Drizzle:
+
+    ```bash
+    bun run migrate:local
+    ```
+
+    This command:
+    1. Connects to your database using `DATABASE_URL`
+    2. Runs all migrations from the `migrations/` folder
+    3. Creates all required tables (users, sessions, accounts, etc.)
+
+    <Info>
+      The migration script is located at `scripts/migrate.ts` and uses Drizzle's migration runner.
+    </Info>
+
+    ### Available migration commands
+
+    <CodeGroup>
+    ```bash Local migrations
+    bun run migrate:local
+    ```
+
+    ```bash Production migrations
+    bun run migrate:prod
+    ```
+
+    ```bash Generate new migration
+    bun run generate-migration
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Start development server">
+    Launch the Next.js development server:
+
+    ```bash
+    bun dev
+    ```
+
+    The application will start at [http://localhost:3000](http://localhost:3000)
+
+    You should see output similar to:
+
+    ```
+    ▲ Next.js 16.1.1
+    - Local:        http://localhost:3000
+    - Ready in 1.2s
+    ```
+
+    <Tip>
+      The dev server includes hot module replacement (HMR) for instant updates as you code.
+    </Tip>
+  </Step>
+</Steps>
+
+## Environment configuration details
+
+Here's a comprehensive overview of all environment variables:
+
+### Database
+
+```bash
+# Local development database
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+
+# Production database (used by migrate:prod command)
+PROD_DATABASE_URL=postgres://user:password@host:5432/database
+```
+
+### Application
+
+```bash
+# Public URL of your application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Environment indicator
+NEXT_PUBLIC_ENV=development
+```
+
+### Authentication
+
+```bash
+# Secret for encrypting sessions (required)
+BETTER_AUTH_SECRET=generate-with-openssl-rand-base64-32
+
+# Base URL for auth callbacks (required)
+BETTER_AUTH_URL=http://localhost:3000
+```
+
+### OAuth providers (optional)
+
+<AccordionGroup>
+  <Accordion title="Google OAuth">
+    Get credentials from [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+
+    ```bash
+    GOOGLE_CLIENT_ID=your-google-client-id
+    GOOGLE_CLIENT_SECRET=your-google-client-secret
+    ```
+  </Accordion>
+
+  <Accordion title="GitHub OAuth">
+    Get credentials from [GitHub Developer Settings](https://github.com/settings/developers)
+
+    ```bash
+    GITHUB_CLIENT_ID=your-github-client-id
+    GITHUB_CLIENT_SECRET=your-github-client-secret
+    ```
+  </Accordion>
+
+  <Accordion title="Microsoft OAuth">
+    Get credentials from [Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredApps)
+
+    ```bash
+    MICROSOFT_CLIENT_ID=your-microsoft-client-id
+    MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
+    MICROSOFT_TENANT_ID=common
+    ```
+  </Accordion>
+
+  <Accordion title="Facebook OAuth">
+    Get credentials from [Facebook Developers](https://developers.facebook.com/apps)
+
+    ```bash
+    FACEBOOK_CLIENT_ID=your-facebook-client-id
+    FACEBOOK_CLIENT_SECRET=your-facebook-client-secret
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Email providers (optional)
+
+```bash
+# Choose: resend, postmark, plunk, nodemailer, or log
+EMAIL_PROVIDER=log
+
+# Resend (recommended for production)
+RESEND_API_KEY=re_123456789
+RESEND_DOMAIN=mail.yourdomain.com
+
+# Postmark
+POSTMARK_API_TOKEN=your-postmark-token
+
+# Plunk
+PLUNK_API_KEY=your-plunk-api-key
+
+# Nodemailer (SMTP)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-user
+SMTP_PASS=your-smtp-password
+SMTP_SECURE=false
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Payment providers (optional)
+
+<AccordionGroup>
+  <Accordion title="Stripe">
+    Get credentials from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)
+
+    ```bash
+    PAYMENT_PROVIDER=stripe
+    STRIPE_SECRET_KEY=sk_live_...
+    STRIPE_WEBHOOK_SECRET=whsec_...
+    STRIPE_PRICE_ID=price_...
+
+    # Public price IDs
+    NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY=price_...
+    NEXT_PUBLIC_STRIPE_PRICE_STARTER_YEARLY=price_...
+    NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY=price_...
+    NEXT_PUBLIC_STRIPE_PRICE_PRO_YEARLY=price_...
+    ```
+  </Accordion>
+
+  <Accordion title="Polar">
+    Get credentials from [Polar Settings](https://polar.sh/settings)
+
+    ```bash
+    PAYMENT_PROVIDER=polar
+    POLAR_ACCESS_TOKEN=your-polar-access-token
+    POLAR_WEBHOOK_SECRET=your-webhook-secret
+    POLAR_ORGANIZATION_ID=your-org-id
+    POLAR_PRODUCT_ID=your-product-id
+    POLAR_ENVIRONMENT=production
+    ```
+  </Accordion>
+
+  <Accordion title="Lemon Squeezy">
+    Get credentials from [Lemon Squeezy Settings](https://app.lemonsqueezy.com/settings/api)
+
+    ```bash
+    PAYMENT_PROVIDER=lemonsqueezy
+    LEMONSQUEEZY_API_KEY=your-api-key
+    LEMONSQUEEZY_STORE_ID=your-store-id
+    LEMONSQUEEZY_WEBHOOK_SECRET=your-webhook-secret
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Cloudflare R2 storage (optional)
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key
+R2_SECRET_ACCESS_KEY=your-secret-key
+R2_BUCKET_URL=https://your-bucket.r2.dev
+R2_STORAGE_BASE_URL=https://your-storage-domain.com
+R2_PUBLIC_BUCKET=your-public-bucket-name
+R2_PRIVATE_BUCKET=your-private-bucket-name
+```
+
+### Sentry monitoring (optional)
+
+```bash
+SENTRY_AUTH_TOKEN=your_sentry_auth_token
+NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Bun installation issues">
+    **Problem**: `bun: command not found`
+
+    **Solution**:
+    1. Install Bun using the official installer:
+       ```bash
+       curl -fsSL https://bun.sh/install | bash
+       ```
+    2. Restart your terminal
+    3. Verify with `bun --version`
+
+    **Problem**: Wrong Bun version
+
+    **Solution**:
+    ```bash
+    bun upgrade
+    ```
+  </Accordion>
+
+  <Accordion title="PostgreSQL connection errors">
+    **Problem**: `Connection refused` or `ECONNREFUSED`
+
+    **Solution**:
+    1. Check if PostgreSQL is running:
+       ```bash
+       # macOS
+       brew services list
+       
+       # Linux
+       sudo systemctl status postgresql
+       ```
+    2. Start PostgreSQL if it's not running:
+       ```bash
+       # macOS
+       brew services start postgresql@16
+       
+       # Linux
+       sudo systemctl start postgresql
+       ```
+    3. Verify your `DATABASE_URL` credentials
+
+    **Problem**: `database "shipfree" does not exist`
+
+    **Solution**:
+    ```bash
+    createdb shipfree
+    ```
+  </Accordion>
+
+  <Accordion title="Migration errors">
+    **Problem**: Migration fails with table already exists
+
+    **Solution**: For a fresh start, drop and recreate the database:
+    ```bash
+    dropdb shipfree
+    createdb shipfree
+    bun run migrate:local
+    ```
+
+    **Problem**: Permission denied errors
+
+    **Solution**: Ensure your PostgreSQL user has proper permissions:
+    ```sql
+    GRANT ALL PRIVILEGES ON DATABASE shipfree TO postgres;
+    ```
+  </Accordion>
+
+  <Accordion title="Port conflicts">
+    **Problem**: Port 3000 is already in use
+
+    **Solution**: Use a different port:
+    ```bash
+    PORT=3001 bun dev
+    ```
+
+    Or kill the process using port 3000:
+    ```bash
+    # macOS/Linux
+    lsof -ti:3000 | xargs kill -9
+    
+    # Windows
+    netstat -ano | findstr :3000
+    taskkill /PID <PID> /F
+    ```
+  </Accordion>
+
+  <Accordion title="Environment variable issues">
+    **Problem**: Environment variables not loading
+
+    **Solution**:
+    1. Ensure `.env` file exists in the root directory
+    2. Restart the development server after changing `.env`
+    3. Check that variables are properly formatted (no spaces around `=`)
+    4. For client-side variables, ensure they start with `NEXT_PUBLIC_`
+
+    **Problem**: `BETTER_AUTH_SECRET` validation error
+
+    **Solution**: Generate a new secret:
+    ```bash
+    openssl rand -base64 32
+    ```
+  </Accordion>
+
+  <Accordion title="TypeScript errors">
+    **Problem**: Type errors in the editor
+
+    **Solution**:
+    1. Restart your TypeScript server in VS Code (Cmd+Shift+P > "Restart TS Server")
+    2. Run type check:
+       ```bash
+       bun run typecheck
+       ```
+    3. Ensure you have the latest dependencies:
+       ```bash
+       bun install
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+Now that ShipFree is installed, you can:
+
+<CardGroup cols={2}>
+  <Card title="Configure authentication" icon="lock" href="/authentication/setup">
+    Set up OAuth providers and customize the auth flow
+  </Card>
+  
+  <Card title="Set up payments" icon="credit-card" href="/payments/setup">
+    Configure your payment provider and pricing plans
+  </Card>
+  
+  <Card title="Customize branding" icon="palette" href="/customization/branding">
+    Update your app's colors, logo, and brand identity
+  </Card>
+  
+  <Card title="Deploy to production" icon="cloud-upload" href="/deployment/vercel">
+    Learn how to deploy your application
+  </Card>
+</CardGroup>
+
+<Tip>
+  Join the ShipFree community for support, updates, and to share what you're building!
+</Tip>

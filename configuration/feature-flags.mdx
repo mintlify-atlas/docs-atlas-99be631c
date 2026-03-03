@@ -1,0 +1,555 @@
+---
+title: Feature Flags
+description: Control features and behavior with environment-based feature flags
+---
+
+ShipFree uses environment-based feature flags to enable/disable features and control application behavior. The feature flag system is defined in `src/config/feature-flags.ts`.
+
+## Environment Detection
+
+ShipFree provides utilities to detect the current runtime environment:
+
+```typescript
+import { 
+  isProd, 
+  isDev, 
+  isTest 
+} from '@/config/feature-flags'
+
+if (isProd) {
+  // Production-only code
+  enableAnalytics()
+}
+
+if (isDev) {
+  // Development-only code
+  enableDebugMode()
+}
+```
+
+### Available Environment Flags
+
+<ParamField path="isProd" type="boolean">
+  Returns `true` when `NODE_ENV === 'production'`
+  
+  ```typescript
+  export const isProd = env.NODE_ENV === 'production'
+  ```
+</ParamField>
+
+<ParamField path="isDev" type="boolean">
+  Returns `true` when `NODE_ENV === 'development'`
+  
+  ```typescript
+  export const isDev = env.NODE_ENV === 'development'
+  ```
+</ParamField>
+
+<ParamField path="isTest" type="boolean">
+  Returns `true` when `NODE_ENV === 'test'`
+  
+  ```typescript
+  export const isTest = env.NODE_ENV === 'test'
+  ```
+</ParamField>
+
+## Core Feature Flags
+
+These flags control major application features.
+
+### Billing
+
+<ParamField path="isBillingEnabled" type="boolean" default="false">
+  Controls whether billing and subscription features are enforced.
+  
+  Set via environment variable:
+  ```bash
+  BILLING_ENABLED=true
+  ```
+  
+  Implementation:
+  ```typescript
+  export const isBillingEnabled = isTruthy(env.BILLING_ENABLED)
+  ```
+</ParamField>
+
+**Usage:**
+
+```typescript
+import { isBillingEnabled } from '@/config/feature-flags'
+
+export default function DashboardPage() {
+  if (isBillingEnabled) {
+    // Show subscription status
+    // Enforce plan limits
+    // Display upgrade prompts
+  }
+  
+  return <Dashboard />
+}
+```
+
+### Email Verification
+
+<ParamField path="isEmailVerificationEnabled" type="boolean" default="false">
+  Controls whether new users must verify their email address.
+  
+  Set via environment variable:
+  ```bash
+  EMAIL_VERIFICATION_ENABLED=true
+  ```
+  
+  Implementation:
+  ```typescript
+  export const isEmailVerificationEnabled = isTruthy(env.EMAIL_VERIFICATION_ENABLED)
+  ```
+</ParamField>
+
+**Usage:**
+
+```typescript
+import { isEmailVerificationEnabled } from '@/config/feature-flags'
+
+export async function registerUser(email: string, password: string) {
+  const user = await createUser(email, password)
+  
+  if (isEmailVerificationEnabled) {
+    await sendVerificationEmail(user)
+    return { requiresVerification: true }
+  }
+  
+  return { requiresVerification: false }
+}
+```
+
+## Payment Provider Detection
+
+These flags detect which payment providers are configured.
+
+### Stripe
+
+<ParamField path="isStripeConfigured" type="boolean">
+  Returns `true` if Stripe credentials are configured.
+  
+  Implementation:
+  ```typescript
+  export const isStripeConfigured = Boolean(
+    env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET
+  )
+  ```
+</ParamField>
+
+**Required environment variables:**
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+### Polar
+
+<ParamField path="isPolarConfigured" type="boolean">
+  Returns `true` if Polar credentials are configured.
+  
+  Implementation:
+  ```typescript
+  export const isPolarConfigured = Boolean(env.POLAR_ACCESS_TOKEN)
+  ```
+</ParamField>
+
+**Required environment variables:**
+- `POLAR_ACCESS_TOKEN`
+
+### Any Provider
+
+<ParamField path="hasBillingProvider" type="boolean">
+  Returns `true` if any payment provider is configured.
+  
+  Implementation:
+  ```typescript
+  export const hasBillingProvider = isStripeConfigured || isPolarConfigured
+  ```
+</ParamField>
+
+**Usage:**
+
+```typescript
+import { 
+  hasBillingProvider,
+  isStripeConfigured,
+  isPolarConfigured 
+} from '@/config/feature-flags'
+
+export function PaymentSettings() {
+  if (!hasBillingProvider) {
+    return <EmptyState message="No payment provider configured" />
+  }
+  
+  return (
+    <div>
+      {isStripeConfigured && <StripeSettings />}
+      {isPolarConfigured && <PolarSettings />}
+    </div>
+  )
+}
+```
+
+## Helper Functions
+
+ShipFree provides utility functions for working with boolean environment variables.
+
+### isTruthy
+
+<ParamField path="isTruthy" type="function">
+  Converts string or boolean values to boolean.
+  
+  Returns `true` for:
+  - `"true"` (case-insensitive)
+  - `"1"`
+  - `true`
+  - `1`
+  
+  Implementation:
+  ```typescript
+  export const isTruthy = (value: string | boolean | number | undefined) =>
+    typeof value === 'string' 
+      ? value.toLowerCase() === 'true' || value === '1' 
+      : Boolean(value)
+  ```
+</ParamField>
+
+**Usage:**
+
+```typescript
+import { isTruthy } from '@/config/env'
+
+const debugMode = isTruthy(process.env.DEBUG_MODE)
+const featureX = isTruthy(process.env.FEATURE_X_ENABLED)
+```
+
+### isFalsy
+
+<ParamField path="isFalsy" type="function">
+  Checks if a value is explicitly false.
+  
+  Returns `true` for:
+  - `"false"` (case-insensitive)
+  - `"0"`
+  - `false`
+  
+  Implementation:
+  ```typescript
+  export const isFalsy = (value: string | boolean | number | undefined) =>
+    typeof value === 'string' 
+      ? value.toLowerCase() === 'false' || value === '0' 
+      : value === false
+  ```
+</ParamField>
+
+**Usage:**
+
+```typescript
+import { isFalsy } from '@/config/env'
+
+const analytics = process.env.ANALYTICS_ENABLED
+
+if (!isFalsy(analytics)) {
+  // Analytics is enabled or not set
+  initializeAnalytics()
+}
+```
+
+## Adding Custom Feature Flags
+
+You can extend the feature flag system with your own flags.
+
+### Step 1: Add Environment Variable
+
+Add to `.env.example` and `.env`:
+
+```bash
+# Enable experimental AI features
+AI_FEATURES_ENABLED=false
+
+# Enable beta API endpoints
+BETA_API_ENABLED=false
+```
+
+### Step 2: Validate in env.ts
+
+Add to `src/config/env.ts`:
+
+```typescript
+export const env = createEnv({
+  server: {
+    // ... existing variables
+    AI_FEATURES_ENABLED: z.boolean().default(false),
+    BETA_API_ENABLED: z.boolean().default(false),
+  },
+  // ...
+  runtimeEnv: {
+    // ... existing mappings
+    AI_FEATURES_ENABLED: process.env.AI_FEATURES_ENABLED,
+    BETA_API_ENABLED: process.env.BETA_API_ENABLED,
+  },
+})
+```
+
+### Step 3: Create Feature Flag
+
+Add to `src/config/feature-flags.ts`:
+
+```typescript
+import { env, isTruthy } from './env'
+
+// ... existing flags
+
+/**
+ * Enable AI-powered features (experimental)
+ */
+export const isAiFeaturesEnabled = isTruthy(env.AI_FEATURES_ENABLED)
+
+/**
+ * Enable beta API endpoints
+ */
+export const isBetaApiEnabled = isTruthy(env.BETA_API_ENABLED)
+```
+
+### Step 4: Use in Your Code
+
+```typescript
+import { isAiFeaturesEnabled } from '@/config/feature-flags'
+
+export default function DashboardPage() {
+  return (
+    <div>
+      <Dashboard />
+      
+      {isAiFeaturesEnabled && (
+        <AIAssistant />
+      )}
+    </div>
+  )
+}
+```
+
+## Advanced Patterns
+
+### Conditional API Routes
+
+Protect beta API endpoints:
+
+```typescript
+import { isBetaApiEnabled } from '@/config/feature-flags'
+import { NextResponse } from 'next/server'
+
+export async function GET(request: Request) {
+  if (!isBetaApiEnabled) {
+    return NextResponse.json(
+      { error: 'Beta API not enabled' },
+      { status: 403 }
+    )
+  }
+  
+  // Beta API logic
+  return NextResponse.json({ data: 'beta feature' })
+}
+```
+
+### Feature Gating with Multiple Flags
+
+Combine multiple flags for complex gating:
+
+```typescript
+import { 
+  isProd, 
+  isBillingEnabled,
+  isStripeConfigured 
+} from '@/config/feature-flags'
+
+export function SubscriptionButton() {
+  const canShowSubscriptions = 
+    isBillingEnabled && 
+    isStripeConfigured && 
+    !isProd // Hide in production for now
+  
+  if (!canShowSubscriptions) {
+    return null
+  }
+  
+  return <button>Upgrade Now</button>
+}
+```
+
+### Environment-Specific Behavior
+
+```typescript
+import { isProd, isDev } from '@/config/feature-flags'
+
+export function initializeApp() {
+  if (isDev) {
+    // Development: Use mock data
+    useMockApi()
+    enableDevTools()
+  }
+  
+  if (isProd) {
+    // Production: Use real services
+    initializeSentry()
+    initializeAnalytics()
+  }
+}
+```
+
+### Server vs Client Feature Flags
+
+For client-accessible flags, use `NEXT_PUBLIC_` prefix:
+
+```bash
+# Server-only flag
+ADMIN_FEATURES_ENABLED=true
+
+# Client-accessible flag
+NEXT_PUBLIC_BETA_UI_ENABLED=true
+```
+
+```typescript
+// src/config/env.ts
+export const env = createEnv({
+  server: {
+    ADMIN_FEATURES_ENABLED: z.boolean().default(false),
+  },
+  client: {
+    NEXT_PUBLIC_BETA_UI_ENABLED: z.boolean().default(false),
+  },
+  // ...
+})
+```
+
+```typescript
+// src/config/feature-flags.ts
+export const isAdminFeaturesEnabled = isTruthy(env.ADMIN_FEATURES_ENABLED)
+export const isBetaUiEnabled = isTruthy(env.NEXT_PUBLIC_BETA_UI_ENABLED)
+```
+
+```typescript
+'use client'
+
+import { isBetaUiEnabled } from '@/config/feature-flags'
+
+export function Header() {
+  return (
+    <header>
+      <Logo />
+      {isBetaUiEnabled && <NewNavigation />}
+    </header>
+  )
+}
+```
+
+## Best Practices
+
+### 1. Explicit Defaults
+
+Always provide explicit default values:
+
+```typescript
+// ✅ Good: Explicit default
+NEW_FEATURE_ENABLED: z.boolean().default(false)
+
+// ❌ Bad: No default
+NEW_FEATURE_ENABLED: z.boolean()
+```
+
+### 2. Descriptive Names
+
+Use clear, descriptive flag names:
+
+```typescript
+// ✅ Good: Clear intent
+isEmailVerificationEnabled
+isStripeConfigured
+isBillingEnabled
+
+// ❌ Bad: Vague names
+enabled
+configured
+active
+```
+
+### 3. Documentation
+
+Document flags in both code and `.env.example`:
+
+```typescript
+/**
+ * Enable AI-powered content suggestions
+ * Requires OpenAI API key to be configured
+ */
+export const isAiFeaturesEnabled = isTruthy(env.AI_FEATURES_ENABLED)
+```
+
+```bash
+# .env.example
+# Enable AI-powered content suggestions (requires OPENAI_API_KEY)
+AI_FEATURES_ENABLED=false
+```
+
+### 4. Gradual Rollout
+
+Use feature flags for gradual rollouts:
+
+```bash
+# .env.development
+NEW_DASHBOARD_ENABLED=true
+
+# .env.production
+NEW_DASHBOARD_ENABLED=false
+```
+
+### 5. Cleanup Old Flags
+
+Remove feature flags after features are stable:
+
+1. Enable feature in production
+2. Monitor for issues
+3. If stable, remove flag and make feature permanent
+4. Clean up flag from all environments
+
+## Testing with Feature Flags
+
+Test features in isolation:
+
+```typescript
+import { isAiFeaturesEnabled } from '@/config/feature-flags'
+
+// Mock the flag for tests
+jest.mock('@/config/feature-flags', () => ({
+  isAiFeaturesEnabled: true,
+}))
+
+test('AI features render when enabled', () => {
+  render(<Dashboard />)
+  expect(screen.getByText('AI Assistant')).toBeInTheDocument()
+})
+```
+
+## Migration Guide
+
+When deprecating a feature flag:
+
+1. **Announce deprecation** in release notes
+2. **Set default to final state** (e.g., `true` for enabled features)
+3. **Remove conditional logic** and make feature permanent
+4. **Remove from env.ts** and feature-flags.ts
+5. **Update documentation**
+
+Example:
+
+```typescript
+// Before: Feature flag
+if (isNewDashboardEnabled) {
+  return <NewDashboard />
+}
+return <OldDashboard />
+
+// After: Feature permanent
+return <NewDashboard />
+```

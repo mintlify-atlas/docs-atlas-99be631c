@@ -1,0 +1,316 @@
+---
+title: 'Resend'
+description: 'Configure Resend as your email provider in ShipFree'
+icon: 'bolt'
+---
+
+## Overview
+
+Resend is the **recommended email provider** for ShipFree in production. It's a modern email API built for developers with:
+
+- Simple, intuitive API
+- Built-in React Email support
+- Excellent deliverability rates
+- Generous free tier (3,000 emails/month)
+- Native batch email support
+- Comprehensive analytics and logging
+
+<Info>
+  Resend is the first provider ShipFree checks for during auto-discovery. If you have `RESEND_API_KEY` set, it will be used automatically.
+</Info>
+
+## Prerequisites
+
+1. A [Resend account](https://resend.com/signup)
+2. A verified domain (or use Resend's test domain for development)
+
+## Setup Instructions
+
+### Step 1: Get Your API Key
+
+1. Sign up or log in at [resend.com](https://resend.com)
+2. Navigate to **API Keys** in the dashboard
+3. Click **Create API Key**
+4. Give it a name (e.g., "ShipFree Production")
+5. Copy the API key (it starts with `re_`)
+
+<Warning>
+  Save your API key immediately - Resend only shows it once for security.
+</Warning>
+
+### Step 2: Verify Your Domain (Production)
+
+For production use, you need to verify a domain:
+
+1. Go to **Domains** in the Resend dashboard
+2. Click **Add Domain**
+3. Enter your domain (e.g., `yourdomain.com`)
+4. Add the provided DNS records to your domain registrar:
+   - SPF record
+   - DKIM record  
+   - DMARC record (optional but recommended)
+5. Wait for DNS propagation (usually 5-15 minutes)
+6. Click **Verify** in Resend dashboard
+
+<Tip>
+  Use a subdomain like `mail.yourdomain.com` to keep email DNS records separate from your main domain.
+</Tip>
+
+### Step 3: Configure Environment Variables
+
+Add these variables to your `.env` file:
+
+```bash
+# Required
+RESEND_API_KEY=re_your_api_key_here
+
+# Optional - specify sending domain (defaults to verified domain)
+RESEND_DOMAIN=mail.yourdomain.com
+
+# Optional - explicitly set Resend as provider
+EMAIL_PROVIDER=resend
+
+# Email defaults
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+### Step 4: Test Your Configuration
+
+Send a test email:
+
+```typescript
+import { sendEmail, getActiveProviderName } from '@/lib/messaging/email';
+
+// Verify Resend is active
+console.log('Active provider:', getActiveProviderName()); // Should output: 'resend'
+
+// Send test email
+const result = await sendEmail({
+  to: 'your-email@example.com',
+  subject: 'Test from ShipFree',
+  html: '<h1>Success!</h1><p>Resend is working correctly.</p>',
+});
+
+if (result.success) {
+  console.log('Email sent successfully!', result.data);
+} else {
+  console.error('Email failed:', result.message);
+}
+```
+
+## Features
+
+### Batch Email Support
+
+Resend has native batch sending support, which ShipFree automatically uses:
+
+```typescript
+import { sendBatchEmails } from '@/lib/messaging/email';
+
+await sendBatchEmails({
+  emails: [
+    {
+      to: 'user1@example.com',
+      subject: 'Welcome!',
+      html: '<p>Welcome user 1</p>',
+    },
+    {
+      to: 'user2@example.com',
+      subject: 'Welcome!',
+      html: '<p>Welcome user 2</p>',
+    },
+  ],
+});
+```
+
+<Info>
+  Resend's batch API can send up to 100 emails in a single request, significantly improving performance.
+</Info>
+
+### Attachments
+
+Resend supports file attachments:
+
+```typescript
+import { sendEmail } from '@/lib/messaging/email';
+import { readFileSync } from 'fs';
+
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Invoice',
+  html: '<p>Please find your invoice attached.</p>',
+  attachments: [
+    {
+      filename: 'invoice.pdf',
+      content: readFileSync('./invoice.pdf'),
+      contentType: 'application/pdf',
+    },
+  ],
+});
+```
+
+### Custom Headers
+
+ShipFree automatically handles unsubscribe headers for marketing emails:
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Newsletter',
+  html: '<p>Monthly newsletter</p>',
+  emailType: 'marketing', // Not 'transactional'
+  includeUnsubscribe: true,
+  unsubscribeInfo: {
+    baseUrl: 'https://yourdomain.com',
+    token: 'user-token',
+    writerId: 'newsletter-id',
+  },
+});
+```
+
+This automatically adds RFC-compliant `List-Unsubscribe` headers.
+
+### Reply-To Address
+
+```typescript
+await sendEmail({
+  to: 'user@example.com',
+  subject: 'Support Request',
+  html: '<p>Your support ticket</p>',
+  replyTo: 'support@yourdomain.com', // Replies go here
+});
+```
+
+## Environment Variables Reference
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|----------|
+| `RESEND_API_KEY` | Yes | Your Resend API key | `re_123abc...` |
+| `RESEND_DOMAIN` | No | Verified sending domain | `mail.yourdomain.com` |
+| `EMAIL_PROVIDER` | No | Force Resend as provider | `resend` |
+| `DEFAULT_FROM_EMAIL` | No | Default sender email | `noreply@yourdomain.com` |
+| `DEFAULT_FROM_NAME` | No | Default sender name | `Your App Name` |
+
+## Development vs. Production
+
+### Development Setup
+
+For development, you can use Resend's test domain:
+
+```bash
+# .env.development
+RESEND_API_KEY=re_your_test_api_key
+DEFAULT_FROM_EMAIL=onboarding@resend.dev
+DEFAULT_FROM_NAME=ShipFree Dev
+```
+
+<Warning>
+  Emails sent from `onboarding@resend.dev` only deliver to the email address associated with your Resend account. This is perfect for testing but won't work in production.
+</Warning>
+
+### Production Setup
+
+```bash
+# .env.production
+RESEND_API_KEY=re_your_production_api_key
+RESEND_DOMAIN=mail.yourdomain.com
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+DEFAULT_FROM_NAME=Your App Name
+```
+
+## Pricing
+
+Resend offers:
+
+- **Free Tier**: 3,000 emails/month, 100 emails/day
+- **Paid Plans**: Starting at $20/month for 50,000 emails
+- **Pay-as-you-go**: $1 per 1,000 emails after quota
+
+[View current pricing →](https://resend.com/pricing)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: 'Resend not configured'">
+    This means `RESEND_API_KEY` is not set or is empty.
+    
+    **Solution:**
+    1. Check your `.env` file has `RESEND_API_KEY=re_...`
+    2. Restart your development server
+    3. Verify the API key is valid in Resend dashboard
+  </Accordion>
+
+  <Accordion title="Error: 'Invalid from address'">
+    You're trying to send from an unverified domain.
+    
+    **Solution:**
+    - For development: Use `onboarding@resend.dev`
+    - For production: Verify your domain in Resend dashboard
+    - Check `DEFAULT_FROM_EMAIL` matches your verified domain
+  </Accordion>
+
+  <Accordion title="Emails not being received">
+    Check these common issues:
+    
+    1. **Spam folder**: Check recipient's spam/junk folder
+    2. **Domain verification**: Ensure all DNS records are set correctly
+    3. **API key**: Verify it's a production key, not test key
+    4. **Rate limits**: Check you haven't exceeded daily/monthly quota
+    5. **Resend logs**: Check the Resend dashboard for delivery status
+  </Accordion>
+
+  <Accordion title="How do I see sent emails?">
+    View all sent emails in the Resend dashboard:
+    
+    1. Log in to [resend.com](https://resend.com)
+    2. Go to **Emails** section
+    3. View delivery status, opens, clicks, and more
+    
+    Each email has a unique ID returned in `result.data` that you can search for.
+  </Accordion>
+</AccordionGroup>
+
+## Code Reference
+
+The Resend provider implementation is in:
+
+```
+src/lib/messaging/email/providers/resend.ts
+```
+
+Key functions:
+- `createResendProvider()` - Initialize provider (line 114)
+- `send()` - Send single email (line 27)
+- `sendBatch()` - Send batch emails (line 63)
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Resend Documentation" icon="book" href="https://resend.com/docs">
+    Official Resend API documentation
+  </Card>
+  <Card title="Resend Dashboard" icon="chart-line" href="https://resend.com/emails">
+    View sent emails and analytics
+  </Card>
+  <Card title="React Email" icon="react" href="https://react.email">
+    Learn more about React Email templates
+  </Card>
+  <Card title="Domain Setup" icon="globe" href="https://resend.com/docs/dashboard/domains/introduction">
+    Guide to verifying your domain
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<Steps>
+  <Step title="Create custom email templates">
+    Learn how to build custom templates in the [Email Overview](/email/overview#creating-custom-email-templates)
+  </Step>
+  <Step title="Test in development">
+    Use the log provider or Resend test domain to test email flows
+  </Step>
+  <Step title="Monitor delivery">
+    Set up Resend webhooks to track email events (opens, clicks, bounces)
+  </Step>
+</Steps>

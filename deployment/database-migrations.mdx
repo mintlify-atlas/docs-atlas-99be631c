@@ -1,0 +1,452 @@
+---
+title: Database Migrations
+description: Manage database schema changes with Drizzle ORM migrations
+---
+
+ShipFree uses [Drizzle ORM](https://orm.drizzle.team) for database management and migrations. This guide covers how to generate, run, and manage database migrations in development and production.
+
+## Overview
+
+Drizzle migrations are:
+- **Type-safe**: Generated from your TypeScript schema
+- **Automatic**: SQL is generated for you
+- **Version-controlled**: Migration files are committed to Git
+- **Reversible**: Can be rolled back if needed
+
+## Migration Commands
+
+ShipFree provides three migration commands in `package.json`:
+
+```json package.json
+{
+  "scripts": {
+    "generate-migration": "drizzle-kit generate",
+    "migrate:local": "bun run ./scripts/migrate.ts",
+    "migrate:prod": "cross-env NODE_ENV=production bun run ./scripts/migrate.ts"
+  }
+}
+```
+
+### Command Breakdown
+
+| Command | Purpose | Database Used |
+|---------|---------|---------------|
+| `generate-migration` | Generate SQL migration files from schema changes | None (just generates files) |
+| `migrate:local` | Run migrations on local database | `DATABASE_URL` |
+| `migrate:prod` | Run migrations on production database | `PROD_DATABASE_URL` |
+
+## Drizzle Configuration
+
+Migrations are configured in `drizzle.config.ts`:
+
+```ts drizzle.config.ts
+import type { Config } from 'drizzle-kit'
+
+export default {
+  schema: './src/database/schema.ts',
+  out: './migrations',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+} satisfies Config
+```
+
+**Configuration details:**
+- `schema`: Location of your database schema definition
+- `out`: Directory where migration files are generated
+- `dialect`: Database type (PostgreSQL)
+- `dbCredentials.url`: Database connection string
+
+## Migration Workflow
+
+### 1. Update Database Schema
+
+Edit your schema in `src/database/schema.ts`:
+
+```ts src/database/schema.ts
+import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+
+export const users = pgTable('users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+// Add a new table
+export const posts = pgTable('posts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  title: text('title').notNull(),
+  content: text('content'),
+  authorId: uuid('author_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+```
+
+### 2. Generate Migration
+
+Generate SQL migration files from your schema changes:
+
+```bash
+bun run generate-migration
+```
+
+**Output:**
+```
+[✓] Generating migrations
+[✓] Migration generated: migrations/0001_new_posts_table.sql
+```
+
+This creates a new file in the `migrations/` directory with the SQL needed to apply your schema changes.
+
+### 3. Review Generated Migration
+
+Check the generated SQL file:
+
+```sql migrations/0001_new_posts_table.sql
+CREATE TABLE IF NOT EXISTS "posts" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "title" text NOT NULL,
+  "content" text,
+  "author_id" uuid,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+
+ALTER TABLE "posts" ADD CONSTRAINT "posts_author_id_users_id_fk" 
+  FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
+```
+
+### 4. Run Migration Locally
+
+Apply migrations to your local database:
+
+```bash
+bun run migrate:local
+```
+
+**Output:**
+```
+Connecting to: postgres://postgres:****@localhost:5432/shipfree
+Running migrations....
+Migrations completed!
+```
+
+## Migration Script
+
+The migration script is located at `scripts/migrate.ts`:
+
+```ts scripts/migrate.ts
+import { config } from 'dotenv'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import process from 'node:process'
+import postgres from 'postgres'
+
+config()
+
+const isProd = process.env.NODE_ENV === 'production'
+const connectionString = isProd ? process.env.PROD_DATABASE_URL : process.env.DATABASE_URL
+
+if (!connectionString) {
+  throw new Error(`${isProd ? 'PROD_DATABASE_URL' : 'DATABASE_URL'} is not set`)
+}
+
+console.log('Connecting to:', connectionString.replace(/:[^:@]+@/, ':****@')) // Log sanitized connection string
+
+const migrationClient = postgres(connectionString, { max: 1 })
+
+async function main() {
+  console.log('Running migrations....')
+
+  try {
+    const db = drizzle(migrationClient)
+    await migrate(db, { migrationsFolder: './migrations' })
+    console.log('Migrations completed!')
+  } catch (error) {
+    console.error('Migrations failed:', error)
+  } finally {
+    await migrationClient.end()
+  }
+}
+
+main().catch((err) => {
+  console.error('Unexpected error:', err)
+  process.exit(1)
+})
+```
+
+**How it works:**
+1. Loads environment variables from `.env`
+2. Selects database URL based on `NODE_ENV`
+3. Connects to the database
+4. Runs all pending migrations from `./migrations` folder
+5. Closes the connection
+
+## Environment Variables
+
+### Local Development
+
+Set in `.env`:
+
+```bash .env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/shipfree
+```
+
+### Production
+
+Set in `.env` or environment:
+
+```bash .env
+PROD_DATABASE_URL=postgres://user:password@host.neon.tech/database
+```
+
+**Important:** Never commit production credentials to Git!
+
+## Production Migrations
+
+### Option 1: Run Locally (Recommended)
+
+Run migrations from your local machine against the production database:
+
+```bash
+# Set production database URL
+export PROD_DATABASE_URL="postgres://user:password@host:5432/database"
+
+# Run migrations
+bun run migrate:prod
+```
+
+**Output:**
+```
+Connecting to: postgres://user:****@host.neon.tech:5432/database
+Running migrations....
+Migrations completed!
+```
+
+### Option 2: CI/CD Pipeline
+
+Run migrations in your CI/CD workflow:
+
+```yaml .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+      
+      - name: Install dependencies
+        run: bun install
+      
+      - name: Run migrations
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: bun run migrate:prod
+      
+      - name: Deploy to Vercel
+        # ... deployment steps
+```
+
+### Option 3: Vercel Post-Deploy Hook
+
+Run migrations after Vercel deployment using a deploy hook:
+
+1. Add a `migrate` script to `package.json`:
+```json
+"migrate": "bun run ./scripts/migrate.ts"
+```
+
+2. Set up environment variables in Vercel:
+```bash
+PROD_DATABASE_URL=postgres://...
+```
+
+3. Create an API route for migrations (protected):
+```ts src/app/api/migrate/route.ts
+import { NextResponse } from 'next/server'
+
+export async function POST(request: Request) {
+  const authHeader = request.headers.get('authorization')
+  
+  if (authHeader !== `Bearer ${process.env.MIGRATION_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Run migrations
+  const { exec } = await import('child_process')
+  const { promisify } = await import('util')
+  const execAsync = promisify(exec)
+
+  try {
+    await execAsync('bun run migrate:prod')
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    return NextResponse.json({ error: 'Migration failed' }, { status: 500 })
+  }
+}
+```
+
+## Best Practices
+
+### 1. Always Review Generated Migrations
+
+Before running migrations, review the generated SQL:
+
+```bash
+# Generate migration
+bun run generate-migration
+
+# Review the file in migrations/
+cat migrations/0001_*.sql
+
+# Run if it looks correct
+bun run migrate:local
+```
+
+### 2. Test Migrations Locally First
+
+Always test on local database before production:
+
+```bash
+# 1. Generate migration
+bun run generate-migration
+
+# 2. Test locally
+bun run migrate:local
+
+# 3. Verify application works
+bun dev
+
+# 4. Run on production
+bun run migrate:prod
+```
+
+### 3. Backup Production Database
+
+Before running production migrations:
+
+```bash
+# For Neon
+neon backup create
+
+# For Supabase
+# Use Supabase Dashboard → Database → Backups
+
+# For self-hosted PostgreSQL
+pg_dump -h host -U user -d database > backup.sql
+```
+
+### 4. Run Migrations in Maintenance Window
+
+For large schema changes:
+- Schedule a maintenance window
+- Put application in maintenance mode
+- Run migrations
+- Verify data integrity
+- Restore application
+
+### 5. Use Transactions
+
+Drizzle automatically wraps migrations in transactions, so failed migrations are rolled back automatically.
+
+### 6. Version Control Migrations
+
+Always commit migration files to Git:
+
+```bash
+git add migrations/
+git commit -m "Add posts table migration"
+```
+
+## Troubleshooting
+
+### Migration Fails with "DATABASE_URL is not set"
+
+**Solution:** Set the appropriate environment variable:
+
+```bash
+# For local
+export DATABASE_URL="postgres://..."
+
+# For production
+export PROD_DATABASE_URL="postgres://..."
+```
+
+### Migration Fails with Connection Error
+
+**Check database connectivity:**
+
+```bash
+# Test connection using psql
+psql "postgres://user:password@host:5432/database"
+```
+
+**Common issues:**
+- Incorrect connection string
+- Database server not running
+- Firewall blocking connection
+- SSL/TLS requirements (add `?sslmode=require` to connection string)
+
+### Migration Already Applied
+
+Drizzle tracks applied migrations in the database. If you try to run the same migration twice, it will skip it:
+
+```
+Migrations completed! (0 new migrations applied)
+```
+
+### Rollback a Migration
+
+Drizzle doesn't have built-in rollback. To undo a migration:
+
+1. **Option A:** Write a new migration to reverse changes
+2. **Option B:** Restore from database backup
+3. **Option C:** Manually write SQL to undo changes
+
+## Advanced Usage
+
+### Custom Migration Files
+
+You can create custom SQL migrations:
+
+```bash
+# Create migrations directory
+mkdir -p migrations
+
+# Add custom SQL file
+touch migrations/0010_custom_indexes.sql
+```
+
+```sql migrations/0010_custom_indexes.sql
+CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+CREATE INDEX CONCURRENTLY idx_posts_author_id ON posts(author_id);
+```
+
+### Migration Naming
+
+Drizzle generates migration names based on:
+- Sequence number (0001, 0002, etc.)
+- Description from schema changes
+
+Example: `0001_create_users_table.sql`
+
+## Next Steps
+
+- [Learn about the database schema](/api/database/schema)
+- [Deploy to Vercel](/deployment/vercel)
+- [Set up Docker deployment](/deployment/docker)
+
+## Resources
+
+- [Drizzle ORM Migrations](https://orm.drizzle.team/docs/migrations)
+- [Drizzle Kit Documentation](https://orm.drizzle.team/kit-docs/overview)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)

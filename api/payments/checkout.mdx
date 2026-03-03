@@ -1,0 +1,324 @@
+---
+title: Checkout API
+description: Create payment checkout sessions for subscriptions and one-time purchases
+---
+
+The Checkout API creates payment sessions for users to purchase subscriptions or make one-time payments.
+
+## Create Checkout Session
+
+`POST /api/payments/checkout`
+
+Creates a checkout session for a specific plan.
+
+### Implementation
+
+From `src/app/api/payments/checkout/route.ts:15-51`:
+
+```typescript
+export async function POST(req: Request) {
+  // 1. Verify authentication
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // 2. Validate request body
+  const { plan, successUrl, cancelUrl } = checkoutSchema.parse(body)
+
+  // 3. Get active payment adapter (Stripe, Polar, or Lemon Squeezy)
+  const adapter = getPaymentAdapter()
+
+  // 4. Create checkout session
+  const checkoutSession = await adapter.createCheckout({
+    plan,
+    userId: session.user.id,
+    email: session.user.email,
+    successUrl,
+    cancelUrl
+  })
+
+  return NextResponse.json(checkoutSession)
+}
+```
+
+### Authentication
+
+<Info>
+  This endpoint requires authentication. User must have an active session.
+</Info>
+
+### Request
+
+<ParamField body="plan" type="string" required>
+  Plan name to purchase. Must be one of:
+  - `starter`
+  - `pro`
+  - `enterprise`
+  
+  The `free` plan is not purchasable via checkout.
+</ParamField>
+
+<ParamField body="successUrl" type="string">
+  URL to redirect to after successful payment.
+  
+  **Default:** `/dashboard?checkout=success` (from `src/config/payments.ts:240`)
+</ParamField>
+
+<ParamField body="cancelUrl" type="string">
+  URL to redirect to if user cancels checkout.
+  
+  **Default:** `/dashboard?checkout=canceled` (from `src/config/payments.ts:241`)
+</ParamField>
+
+### Response
+
+<ResponseField name="url" type="string">
+  Checkout session URL to redirect the user to
+</ResponseField>
+
+<ResponseField name="sessionId" type="string">
+  Payment provider's session ID for tracking
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+```typescript Client Component
+'use client'
+
+export function UpgradeButton() {
+  const handleUpgrade = async () => {
+    const response = await fetch('/api/payments/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: 'pro',
+        successUrl: `${window.location.origin}/dashboard?upgrade=success`,
+        cancelUrl: `${window.location.origin}/pricing`
+      })
+    })
+
+    const { url } = await response.json()
+    
+    // Redirect to checkout
+    window.location.href = url
+  }
+
+  return (
+    <button onClick={handleUpgrade}>
+      Upgrade to Pro
+    </button>
+  )
+}
+```
+
+```typescript Server Action
+import { auth } from '@/lib/auth'
+import { headers } from 'next/headers'
+
+export async function createCheckoutSession(plan: string) {
+  const session = await auth.api.getSession({
+    headers: await headers()
+  })
+
+  if (!session) {
+    throw new Error('Unauthorized')
+  }
+
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/payments/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan })
+  })
+
+  return response.json()
+}
+```
+
+```bash cURL
+curl -X POST https://yourapp.com/api/payments/checkout \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better-auth.session_token=YOUR_SESSION_TOKEN" \
+  -d '{
+    "plan": "pro",
+    "successUrl": "https://yourapp.com/dashboard?success=true",
+    "cancelUrl": "https://yourapp.com/pricing"
+  }'
+```
+</CodeGroup>
+
+### Response Example
+
+```json
+{
+  "url": "https://checkout.stripe.com/c/pay/cs_test_abc123...",
+  "sessionId": "cs_test_abc123def456"
+}
+```
+
+## Plan Configuration
+
+Plans are defined in `src/config/payments.ts:52-235`. Each plan includes:
+
+<Accordion title="Starter Plan">
+  **Pricing:**
+  - Monthly: $9.90/month
+  - Yearly: $99/year (save 17%)
+  
+  **Features:**
+  - Up to 10 projects
+  - Advanced analytics
+  - Email support
+  - Premium templates
+  - Custom integrations
+  
+  **Trial:** 14 days
+</Accordion>
+
+<Accordion title="Pro Plan (Recommended)">
+  **Pricing:**
+  - Monthly: $29.90/month
+  - Yearly: $299/year (save 17%)
+  
+  **Features:**
+  - Unlimited projects
+  - Real-time analytics
+  - Priority support
+  - White-label options
+  - Advanced integrations
+  - Team collaboration
+  - Custom workflows
+  
+  **Seat-based billing:** Yes (up to 50 seats)
+  
+  **Trial:** 14 days
+</Accordion>
+
+<Accordion title="Enterprise Plan">
+  **Pricing:**
+  - Monthly: $99.90/month
+  - Yearly: $999/year (save 17%)
+  
+  **Features:**
+  - Everything in Pro
+  - Dedicated account manager
+  - Custom contracts
+  - SLA guarantees
+  - Advanced security
+  - Unlimited seats
+  - Custom integrations
+  - On-premise deployment
+  
+  **Seat-based billing:** Yes (unlimited)
+  
+  **Trial:** 30 days
+</Accordion>
+
+## Multi-Provider Support
+
+ShipFree supports multiple payment providers. The active provider is determined by environment configuration:
+
+<CodeGroup>
+```typescript Stripe
+// Set in .env
+PAYMENT_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+// Price IDs in .env
+NEXT_PUBLIC_STRIPE_PRICE_STARTER_MONTHLY=price_...
+NEXT_PUBLIC_STRIPE_PRICE_PRO_MONTHLY=price_...
+```
+
+```typescript Polar
+// Set in .env
+PAYMENT_PROVIDER=polar
+POLAR_ACCESS_TOKEN=polar_at_...
+
+// Product IDs in .env
+NEXT_PUBLIC_POLAR_PRODUCT_STARTER_MONTHLY=prod_...
+NEXT_PUBLIC_POLAR_PRODUCT_PRO_MONTHLY=prod_...
+```
+
+```typescript Lemon Squeezy
+// Set in .env
+PAYMENT_PROVIDER=lemonsqueezy
+LEMONSQUEEZY_API_KEY=...
+LEMONSQUEEZY_STORE_ID=...
+LEMONSQUEEZY_WEBHOOK_SECRET=...
+
+// Product IDs in .env
+NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_STARTER_MONTHLY=...
+NEXT_PUBLIC_LEMONSQUEEZY_PRODUCT_PRO_MONTHLY=...
+```
+</CodeGroup>
+
+The adapter is selected automatically based on `PAYMENT_PROVIDER` environment variable.
+
+## Validation
+
+Request validation schema from `src/app/api/payments/checkout/route.ts:9-13`:
+
+```typescript
+const checkoutSchema = z.object({
+  plan: z.enum(getAvailablePlans() as [string, ...string[]]),
+  successUrl: z.string().optional(),
+  cancelUrl: z.string().optional()
+})
+```
+
+## Error Handling
+
+<ResponseField name="401" type="Unauthorized">
+  User is not authenticated. Session token is missing or invalid.
+  
+  ```json
+  { "error": "Unauthorized" }
+  ```
+</ResponseField>
+
+<ResponseField name="400" type="Bad Request">
+  Invalid request body. Plan name is invalid or missing.
+  
+  ```json
+  { "error": "Invalid request body" }
+  ```
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Payment provider error or server error.
+  
+  ```json
+  {
+    "error": "Failed to create checkout session"
+  }
+  ```
+</ResponseField>
+
+## Post-Checkout Flow
+
+After successful payment:
+
+1. **User completes payment** on provider's checkout page
+2. **Provider redirects** to `successUrl`
+3. **Webhook is sent** to `/api/webhooks/payments` (see [Webhooks](/api/payments/webhooks))
+4. **Database is updated** with subscription/payment records
+5. **User gains access** to plan features
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Customer Portal" icon="gear" href="/api/payments/portal">
+    Manage subscriptions and billing
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/api/payments/webhooks">
+    Handle payment events
+  </Card>
+  <Card title="Database Schema" icon="database" href="/api/database/schema">
+    Payment-related tables
+  </Card>
+  <Card title="Subscription API" icon="credit-card" href="/api/payments/subscription">
+    Retrieve subscription data
+  </Card>
+</CardGroup>
