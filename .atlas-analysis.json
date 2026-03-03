@@ -1,0 +1,121 @@
+{
+  "projectType": "saas",
+  "projectName": "ShipFree",
+  "projectDescription": "Open source Next.js SaaS boilerplate with authentication, payments, and email integration",
+  "theme": "aspen",
+  "primaryColor": "#701ffc",
+  "lightColor": "#9d54ff",
+  "darkColor": "#5a19ca",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/authentication",
+              "features/payments",
+              "features/email",
+              "features/database",
+              "features/internationalization",
+              "features/storage"
+            ]
+          },
+          {
+            "group": "Payment Providers",
+            "pages": [
+              "payments/overview",
+              "payments/stripe",
+              "payments/polar",
+              "payments/lemonsqueezy",
+              "payments/other-providers"
+            ]
+          },
+          {
+            "group": "Email Providers",
+            "pages": [
+              "email/overview",
+              "email/resend",
+              "email/postmark",
+              "email/plunk",
+              "email/nodemailer"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/branding",
+              "configuration/feature-flags"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/vercel",
+              "deployment/docker",
+              "deployment/database-migrations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/overview",
+              "api/auth/endpoints"
+            ]
+          },
+          {
+            "group": "Payments",
+            "pages": [
+              "api/payments/checkout",
+              "api/payments/webhooks"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "api/database/schema",
+              "api/database/queries"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Better-Auth with multiple OAuth providers (Google, GitHub, Microsoft, Facebook)",
+    "Multi-provider payment integration (Stripe, Polar, LemonSqueezy, Autumn, Dodo, Creem)",
+    "Subscription management with Free, Starter, Pro, and Enterprise tiers",
+    "Email service with multiple providers (Resend, Postmark, Plunk, Nodemailer)",
+    "PostgreSQL database with Drizzle ORM",
+    "Internationalization support (English, French, Spanish)",
+    "Cloudflare R2 storage integration",
+    "Modern UI with TailwindCSS 4 and BaseUI components",
+    "Built with Next.js 16 App Router and Bun runtime",
+    "Sentry integration for error tracking"
+  ],
+  "publicApiSurface": [
+    "/api/auth/* - Better-Auth authentication endpoints",
+    "/api/payments/* - Payment processing endpoints",
+    "/api/webhooks/* - Webhook handlers for payment providers",
+    "auth client and server helpers from Better-Auth",
+    "Payment service adapters for Stripe, Polar, LemonSqueezy",
+    "Email mailer with provider abstraction",
+    "Drizzle ORM schema and database connection",
+    "Storage client for Cloudflare R2"
+  ]
+}
